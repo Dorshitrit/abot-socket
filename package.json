@@ -1,7 +1,10 @@
 {
   "name": "@abot-ai/socket",
   "version": "0.1.0",
-  "private": true,
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

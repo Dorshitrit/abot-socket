@@ -4,16 +4,19 @@ A self-hosted chat relay between a native ABot client and your ABot Runtime
 instances. You operate the relay, pair your devices, and connect your own
 computers. The relay does not require an ABot-hosted account or backend.
 
-The source is available under the [MIT license](LICENSE). The npm package is
-not published yet; `private: true` keeps registry publication blocked while the
-first release is prepared. You can build and install a local tarball from source.
+The source is available under the [MIT license](LICENSE). Install the versioned
+`@abot-ai/socket` package from npm, or build a local tarball from source.
 
 ## Install and prepare
 
 Start with [Installation and first connection](docs/INSTALLATION.md), the consumer
-guide for installing the local candidate tarball, preparing a server, connecting
-a runtime and pairing the app by QR or manual entry. `@abot-ai/socket` is not
-published on npm; registry installation is a future release step.
+guide for installing the command, preparing a server, connecting a runtime and
+pairing the app by QR or manual entry.
+
+```sh
+npm install --global @abot-ai/socket@0.1.0
+abot-socket setup
+```
 
 The command requires Node.js 24 or later. Its terminal wizard creates private
 configuration/state and, on Linux, reviewable systemd/HTTPS proxy files. The

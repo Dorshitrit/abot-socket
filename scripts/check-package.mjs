@@ -38,7 +38,9 @@ function hasNoBundledDependencies(metadata) {
 export function validatePackageMetadata(metadata) {
   requireContract(metadata && typeof metadata === 'object' && !Array.isArray(metadata), 'Invalid package metadata');
   requireContract(metadata.name === PACKAGE_NAME, 'Unexpected package name');
-  requireContract(metadata.private === true, 'Publication must remain blocked during preparation');
+  requireContract(!Object.hasOwn(metadata, 'private'), 'Release metadata must not contain a private flag');
+  requireContract(metadata.publishConfig?.registry === 'https://registry.npmjs.org/', 'Publication must target the official npm registry');
+  requireContract(metadata.publishConfig?.access === 'public', 'The scoped release must have public access');
   requireContract(metadata.license === 'MIT', 'The approved MIT license is required');
   requireContract(typeof metadata.version === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(metadata.version), 'Invalid package version');
   requireContract(metadata.type === 'module' && metadata.engines?.node === '>=24', 'Unexpected runtime requirements');

@@ -6,7 +6,8 @@ import { dirname, join } from 'node:path';
 import { collectPackageInventory, validatePackageMetadata, validatePackedPackage } from '../scripts/check-package.mjs';
 
 const METADATA = {
-  name: '@abot-ai/socket', version: '0.1.0', private: true, license: 'MIT',
+  name: '@abot-ai/socket', version: '0.1.0', license: 'MIT',
+  publishConfig: { registry: 'https://registry.npmjs.org/', access: 'public' },
   type: 'module', engines: { node: '>=24' }, bin: { 'abot-socket': 'bin/abot-socket.mjs' },
   scripts: { start: 'node bin/abot-socket.mjs start' },
   files: ['bin/abot-socket.mjs', 'src/main.mjs',
@@ -26,7 +27,7 @@ function packed(files = FILES) {
   })) }];
 }
 
-test('package inspection accepts exactly the expected private scoped package inventory', () => {
+test('package inspection accepts exactly the expected public scoped package inventory', () => {
   assert.deepEqual(validatePackedPackage(packed(), METADATA, FILES), {
     name: METADATA.name, version: METADATA.version, files: FILES.length, unpackedBytes: FILES.length * 20,
   });
@@ -59,8 +60,11 @@ test('unexpected identity, invalid file metadata and multiple pack results fail 
   }
 });
 
-test('publication guards and explicit allowlist cannot be removed during preparation', () => {
-  for (const alteration of [{ private: false }, { license: 'UNLICENSED' }, { files: ['.'] },
+test('release destination, access and explicit allowlist are enforced', () => {
+  for (const alteration of [{ private: true }, { private: false }, { license: 'UNLICENSED' }, { files: ['.'] },
+    { publishConfig: undefined },
+    { publishConfig: { registry: 'https://registry.example.test/', access: 'public' } },
+    { publishConfig: { registry: 'https://registry.npmjs.org/', access: 'restricted' } },
     { bin: { other: 'src/main.mjs' } }, { engines: { node: '>=18' } },
     { bundleDependencies: true }, { bundledDependencies: ['ws'] }]) {
     assert.throws(() => validatePackageMetadata({ ...METADATA, ...alteration }));

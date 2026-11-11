@@ -4,12 +4,12 @@ Use [Installation and first connection](INSTALLATION.md) for the consumer
 installation, setup and QR/manual pairing flow. This companion guide covers
 configuration, the proxy trust boundary and ongoing operation. Service/proxy plan
 generation is covered in [Deployment](DEPLOYMENT.md). The source is MIT-licensed;
-the npm package remains unpublished pending its first registry release.
+the package is distributed as `@abot-ai/socket` on npm.
 
 ## Requirements
 
 - Node.js 24 or later. npm installs the package's pinned dependencies, `ws` and
-  `qrcode-generator`, with the local candidate tarball.
+  `qrcode-generator`, with either the registry package or a local tarball.
 - A server you control and a canonical HTTPS origin such as
   `https://socket.example.net`.
 - A local HTTPS reverse proxy satisfying the boundary below.
@@ -54,7 +54,7 @@ Generate pairing details after HTTPS is ready, then follow the
 The application listens only on `127.0.0.1` at the configured port. Keep the proxy
 on the same host and the application listener private. Containers, remote proxies,
 and additional proxy chains require a separately validated network arrangement;
-this candidate does not ship a Docker deployment.
+this package does not ship a Docker deployment.
 
 For direct Internet-to-proxy-to-relay deployment, the proxy must:
 
@@ -134,7 +134,7 @@ revocation state; reapply necessary revocations. Conversation history remains in
 each runtime. Temporary relay routes do not survive restart, so reconcile
 interrupted requests with runtime history rather than automatically resending.
 
-This local candidate does not provision a public TLS endpoint or install a service.
+The package does not provision a public TLS endpoint or install a service.
 Real-device, proxy and runtime verification remains separate from automated tests.
 
 ## Source-checkout development

@@ -1,6 +1,6 @@
 # Moving to pairing
 
-This local candidate does not change existing services or applications. Use a
+Installing the package does not change existing services or applications. Use a
 separately approved cutover after real-device verification.
 
 The chat envelopes, runtime bridge and runtime credential grants remain compatible.

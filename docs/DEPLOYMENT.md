@@ -3,7 +3,7 @@
 The deployment command creates files for operator review. It does not install
 packages, enable services, reload a proxy, obtain certificates or change system
 configuration. The existing operating-system user and proxy remain your choice.
-Begin with [Installation](INSTALLATION.md) to install the local candidate and
+Begin with [Installation](INSTALLATION.md) to install the package and
 prepare private state; this guide is the subsequent service/HTTPS step.
 
 After creating the private installation, prepare a plan on the Linux host where

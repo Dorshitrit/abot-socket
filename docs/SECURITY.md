@@ -93,6 +93,6 @@ tests exercise loopback HTTP/WebSocket transport. Configuration checking itself
 does not send email or open a listener. None of these checks proves a deployed
 proxy, domain, or real client/runtime behavior.
 
-This unreleased candidate is not a claim of a completed independent security
+Package publication is not a claim of a completed independent security
 audit. When investigating a problem, use synthetic credentials and redact
 configuration, tokens, codes, and conversation content from reports.

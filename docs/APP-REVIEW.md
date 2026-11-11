@@ -3,7 +3,7 @@
 This guide prepares renewable access to an isolated review Socket using the
 ordinary app pairing protocol. It does not deploy services, configure a model,
 publish a package or establish App Store readiness. Actual hosting and signed
-device checks remain required. The package is still an unreleased candidate.
+device checks remain required; installing the package does not complete them.
 
 Apple requests full app access, necessary resources such as pairing QR codes,
 and backend services that remain live during review. See the current
@@ -13,7 +13,7 @@ for each new five-minute code.
 
 ## 1. Prepare a fresh installation
 
-Use Node.js 24 or later and an explicitly installed candidate package. Choose a
+Use Node.js 24 or later and an explicitly installed package version. Choose a
 new, private output directory outside source control. Its parent must already
 exist; the output directory must not. Run setup as the account that will own and
 run both processes; the private files are deliberately rejected for another owner.

@@ -1,9 +1,8 @@
 # Installation and first connection
 
-ABot Socket is MIT-licensed source; `@abot-ai/socket` is not published on npm yet.
-`private: true` deliberately blocks registry publication while the first release
-is prepared. This is the canonical consumer guide; use a locally prepared package
-tarball until a registry release exists.
+ABot Socket is MIT-licensed and distributed as `@abot-ai/socket` on npm.
+This guide covers package installation, server preparation and the first
+runtime/app connection.
 
 ## Install the command
 
@@ -12,7 +11,18 @@ account. Linux with systemd is the server deployment target; macOS can run the
 foreground service and local development checks. The authentication store uses
 POSIX ownership/permissions and does not support Windows server installation.
 
-To prepare a tarball from the public source:
+Install the command from the official npm registry:
+
+```sh
+npm install --global @abot-ai/socket@0.1.0
+abot-socket --version
+abot-socket setup
+```
+
+Prefer an explicit version for server upgrades. An installed package uses the
+`abot-socket` command; it does not require a Git checkout or `npm ci`.
+
+Alternatively, prepare a tarball from the public source:
 
 ```sh
 git clone https://github.com/Dorshitrit/abot-socket.git
@@ -30,10 +40,6 @@ abot-socket --version
 abot-socket setup
 ```
 
-After a public release exists, the install argument can become
-`@abot-ai/socket@<released-version>`. Prefer an explicit version for server upgrades.
-That registry route is not available for this candidate. An installed package
-uses the `abot-socket` command; it does not require a Git checkout or `npm ci`.
 Contributor commands are separate in [Self-hosting](SELF-HOSTING.md#source-checkout-development).
 
 Do not use an ephemeral npx installation for a persistent system service. npm

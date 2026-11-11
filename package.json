@@ -1,0 +1,63 @@
+{
+  "name": "@abot-ai/socket",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node bin/abot-socket.mjs start",
+    "setup": "node bin/abot-socket.mjs setup",
+    "check-config": "node bin/abot-socket.mjs check-config",
+    "test": "node --test test/*.test.mjs",
+    "pair": "node bin/abot-socket.mjs pair",
+    "devices": "node bin/abot-socket.mjs devices",
+    "revoke": "node bin/abot-socket.mjs revoke",
+    "doctor": "node bin/abot-socket.mjs doctor",
+    "deployment": "node bin/abot-socket.mjs deployment",
+    "check-package": "node scripts/check-package.mjs"
+  },
+  "dependencies": {
+    "qrcode-generator": "2.0.4",
+    "ws": "8.21.0"
+  },
+  "description": "Self-hosted authenticated relay for ABot clients and runtimes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dorshitrit/abot-socket.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dorshitrit/abot-socket/issues"
+  },
+  "homepage": "https://github.com/Dorshitrit/abot-socket#readme",
+  "files": [
+    "bin/abot-socket.mjs",
+    "src/main.mjs",
+    "src/auth/*.mjs",
+    "src/cli/*.mjs",
+    "src/config/*.mjs",
+    "src/deployment/*.mjs",
+    "src/notifications/*.mjs",
+    "src/pairing/*.mjs",
+    "src/protocol/*.mjs",
+    "src/relay/*.mjs",
+    "src/review/*.mjs",
+    "src/setup/*.mjs",
+    "src/transport/*.mjs",
+    "README.md",
+    "LICENSE",
+    "config.example.json",
+    "docs/SELF-HOSTING.md",
+    "docs/PROTOCOL.md",
+    "docs/SECURITY.md",
+    "docs/MIGRATION.md",
+    "docs/DEPLOYMENT.md",
+    "docs/INSTALLATION.md",
+    "docs/APP-REVIEW.md"
+  ],
+  "bin": {
+    "abot-socket": "bin/abot-socket.mjs"
+  }
+}

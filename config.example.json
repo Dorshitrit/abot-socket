@@ -1,0 +1,14 @@
+{
+  "publicOrigin": "https://socket.example.invalid",
+  "port": 8788,
+  "runtimeGrants": [
+    {
+      "runtimeId": "workstation",
+      "tokenSha256": "REPLACE_WITH_SHA256_OF_A_NEW_RUNTIME_TOKEN",
+      "allowedModes": [
+        "ask"
+      ]
+    }
+  ],
+  "stateDirectory": "./state"
+}

@@ -1,0 +1,15 @@
+{
+  "description": "Public synthetic cross-platform AES-256-GCM test vector; not real credentials",
+  "now": 1700000000000,
+  "notificationId": "123e4567-e89b-42d3-a456-426614174000",
+  "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "plaintext": "שלום ABot 👋\nYour response is ready.",
+  "aad": "ABot push preview v1\noKGio6SlpqeoqaqrrK2urw\n123e4567-e89b-42d3-a456-426614174000\n1700000060000",
+  "envelope": {
+    "v": 1,
+    "keyId": "oKGio6SlpqeoqaqrrK2urw",
+    "nonce": "ICEiIyQlJicoKSor",
+    "ciphertext": "BZNx7LsNzZM6PQChtTgEZkHC5sXo9RHOHpMfYibkLWxV55Yk_EBUvm3TMOmV9NEAOiw2RR11Ds2JsQ",
+    "expiresAt": 1700000060000
+  }
+}

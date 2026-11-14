@@ -107,12 +107,13 @@ test('v2 migration preserves pairing, tokens and generic outbox; preview default
   f.service.register(device.session.id, { provider: 'fcm', token: 'dummy-old-token' }); complete(f, device);
   const pending = f.auth.createPairing(); const owner = f.database.ownerId;
   await f.service.close();
+  f.database.prepare('DROP TABLE request_ownership').run();
   f.database.prepare('DROP TABLE notification_preview_keys').run();
   f.database.prepare('ALTER TABLE notification_outbox DROP COLUMN encrypted_preview').run();
   f.database.prepare('PRAGMA user_version = 2').run();
   const migrated = new AuthDatabase(f.stateDirectory); const auth = new AuthService({ database: migrated, now: f.now });
   try {
-    assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 3);
+    assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 4);
     assert.equal(migrated.ownerId, owner);
     assert.equal(auth.authenticate(device.token).sessionId, device.session.id);
     assert.ok(auth.redeemPairing(pending, 'fixture').token);

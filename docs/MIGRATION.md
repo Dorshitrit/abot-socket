@@ -23,8 +23,44 @@ source changes. Setup generates new runtime credentials rather than rotating or
 migrating an existing installation automatically.
 
 After cutover, retain the private state directory through upgrades. Device
-sessions persist there; transient relay routes still disappear on restart.
-Interrupted requests must be reconciled against runtime history before retry.
+sessions persist there. Socket connections and transient subscriptions still
+disappear on restart; durable request ownership is described below. Interrupted
+requests must be reconciled against runtime state before retry.
+
+## Durable request ownership schema upgrade
+
+Schema v4 adds a routing-ownership table to the existing private database.
+Schemas v1, v2 and v3 upgrade transactionally, preserving owner identity, paired
+devices, pending pairing, notification metadata, preview keys and delivery queues.
+No new dependency or additional state file is required.
+
+New durable requests record their runtime, session, request, owner and
+initiating device identifiers, plus routing status and timestamps. A paired owner
+device can also recover an unowned computer-created request: after a fresh
+response from the authorized runtime verifies the exact session and request, the
+Socket records that ownership with the adopting device. Existing ownership is
+never reassigned to a different owner or session. There is no bulk import, and
+historical events cannot establish ownership.
+
+This table contains no conversation content, approval presentation, decision or
+continuation. The runtime remains authoritative for pending approvals and decision
+receipts. Recovery requires a compatible client and `request_approvals_v1` on the
+selected runtime; legacy requests are not automatically converted during upgrade.
+
+Ownership is persisted before forwarding a new request. Open or uncertain records
+do not expire or get evicted; a full 512-record ledger rejects new admissions.
+Only confirmed terminal records expire after 12 hours. Confirmed whole-session
+deletion retires that session's records. Revoking the originating
+device does not erase ownership: another paired device of the same owner can
+still recover the request, but revoked credentials cannot connect or receive push.
+An interrupted send is never automatically resent from this ledger.
+
+Stop the service and preserve the private state directory and matching code before
+upgrading. Older binaries reject schema v4. Rollback requires restoring the
+matching pre-upgrade database snapshot and code while stopped; do not delete state
+to make an old binary start. Reconcile device revocations and deliveries made
+since that snapshot before resuming service. This source change alone does not
+upgrade or restart a deployed service.
 
 
 ## Notification preview schema upgrade

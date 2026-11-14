@@ -3,11 +3,16 @@ import {
   MAX_MESSAGE_BYTES, MAX_TEXT_BYTES, fail, record, string, id, approvalId, integer,
   boolean, optional, attachment, attachments, modelPreference, reasoningPreference, upload,
 } from './protocol-validation.mjs';
+import { APPROVAL_FIELDS, APPROVAL_RESPONSES, durableApprovalMode,
+  isApprovalCommand, normalizeApprovalCommand } from './approval-protocol.mjs';
+import { SPARK_OPEN_REQUEST, SPARK_OPEN_RESPONSE } from './spark-chat-protocol.mjs';
 
 export { MAX_MESSAGE_BYTES, MAX_ATTACHMENT_BYTES, MAX_TEXT_BYTES } from './protocol-validation.mjs';
 
 const FIELDS = Object.freeze({
-  run_request: ['requestId', 'sessionId', 'input', 'text', 'agentMode', 'modelPreference', 'reasoningPreference', 'toolPermissionMode', 'attachments'],
+  [SPARK_OPEN_REQUEST]: [],
+  run_request: ['requestId', 'sessionId', 'input', 'text', 'agentMode', 'modelPreference', 'reasoningPreference', 'toolPermissionMode', 'attachments', 'approvalMode'],
+  ...APPROVAL_FIELDS,
   steer_request: ['requestId', 'steerId', 'text'],
   tool_approval_response: ['approvalId', 'approved', 'reason'],
   'request.events.request': ['requestId', 'afterSeq'],
@@ -21,6 +26,8 @@ const FIELDS = Object.freeze({
   subscribe_request: ['requestId'],
 });
 const RESPONSES = Object.freeze({
+  [SPARK_OPEN_REQUEST]: SPARK_OPEN_RESPONSE,
+  ...APPROVAL_RESPONSES,
   'request.events.request': 'request.events.response',
   'session.list.request': 'session.list.response',
   'session.snapshot.request': 'session.snapshot.response',
@@ -48,6 +55,7 @@ function run(value, allowedModes) {
   });
   optional(value, result, 'modelPreference', modelPreference);
   optional(value, result, 'reasoningPreference', reasoningPreference);
+  optional(value, result, 'approvalMode', durableApprovalMode);
   const mode = Object.hasOwn(value, 'toolPermissionMode') ? value.toolPermissionMode : 'ask';
   if (!MODES.includes(mode)) fail();
   if (!Array.isArray(allowedModes) || !allowedModes.includes(mode)) fail('forbidden');
@@ -57,8 +65,10 @@ function run(value, allowedModes) {
 }
 
 function normalize(value, allowedModes) {
+  if (isApprovalCommand(value.type)) return normalizeApprovalCommand(value);
   const result = { type: value.type };
   switch (value.type) {
+    case SPARK_OPEN_REQUEST: return result;
     case 'run_request': return run(value, allowedModes);
     case 'subscribe_request': return { ...result, requestId: id(value.requestId) };
     case 'steer_request': return { ...result, requestId: id(value.requestId), steerId: id(value.steerId), text: text(value.text) };

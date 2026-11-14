@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { collectPackageInventory, validatePackageMetadata, validatePackedPackage } from '../scripts/check-package.mjs';
 
 const METADATA = {
-  name: '@abot-ai/socket', version: '0.1.0', license: 'MIT',
+  name: '@abot-ai/socket', version: '0.2.0', license: 'MIT',
   publishConfig: { registry: 'https://registry.npmjs.org/', access: 'public' },
   type: 'module', engines: { node: '>=24' }, bin: { 'abot-socket': 'bin/abot-socket.mjs' },
   scripts: { start: 'node bin/abot-socket.mjs start' },
@@ -14,11 +14,11 @@ const METADATA = {
     'src/auth/*.mjs', 'src/cli/*.mjs', 'src/config/*.mjs', 'src/deployment/*.mjs',
     'src/notifications/*.mjs', 'src/pairing/*.mjs', 'src/protocol/*.mjs',
     'src/relay/*.mjs', 'src/review/*.mjs', 'src/setup/*.mjs', 'src/transport/*.mjs',
-    'README.md', 'LICENSE', 'config.example.json',
+    'README.md', 'CHANGELOG.md', 'LICENSE', 'config.example.json',
     'docs/SELF-HOSTING.md', 'docs/PROTOCOL.md', 'docs/SECURITY.md',
     'docs/MIGRATION.md', 'docs/DEPLOYMENT.md', 'docs/INSTALLATION.md', 'docs/APP-REVIEW.md'],
 };
-const FILES = ['package.json', 'bin/abot-socket.mjs', 'src/main.mjs', 'src/auth/auth.mjs', 'README.md'];
+const FILES = ['package.json', 'bin/abot-socket.mjs', 'src/main.mjs', 'src/auth/auth.mjs', 'README.md', 'CHANGELOG.md'];
 const clone = (value) => structuredClone(value);
 
 function packed(files = FILES) {
@@ -43,7 +43,9 @@ test('secret, state, development, dependency and escaping paths cannot enter the
 });
 
 test('a missing source module, duplicate or nonexecutable bin rejects the artifact', () => {
-  assert.throws(() => validatePackedPackage(packed(FILES.filter((name) => name !== 'src/auth/auth.mjs')), METADATA, FILES), /missing required/);
+  for (const required of ['src/auth/auth.mjs', 'CHANGELOG.md']) {
+    assert.throws(() => validatePackedPackage(packed(FILES.filter((name) => name !== required)), METADATA, FILES), /missing required/);
+  }
   assert.throws(() => validatePackedPackage(packed([...FILES, FILES[0]]), METADATA, FILES), /Duplicate/);
   const artifact = packed();
   artifact[0].files.find((file) => file.path === 'bin/abot-socket.mjs').mode = 0o644;

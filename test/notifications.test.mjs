@@ -209,7 +209,7 @@ test('schema v1 migrates without losing device tokens, owner identity or pending
   const f = notificationFixture(t); const device = f.pair(); const pending = f.auth.createPairing();
   const owner = f.database.ownerId; const salt = f.database.tokenSalt;
   await f.service.close();
-  for (const table of ['notification_preview_keys', 'notification_outbox', 'notification_registrations', 'notifications']) {
+  for (const table of ['request_ownership', 'notification_preview_keys', 'notification_outbox', 'notification_registrations', 'notifications']) {
     f.database.prepare(`DROP TABLE ${table}`).run();
   }
   f.database.prepare('PRAGMA user_version = 1').run();
@@ -219,6 +219,6 @@ test('schema v1 migrates without losing device tokens, owner identity or pending
     assert.equal(migrated.ownerId, owner); assert.equal(migrated.tokenSalt, salt);
     assert.equal(auth.authenticate(device.token).sessionId, device.session.id);
     assert.ok(auth.redeemPairing(pending, 'fixture').token);
-    assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 3);
+    assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 4);
   } finally { auth.close(); migrated.close(); }
 });

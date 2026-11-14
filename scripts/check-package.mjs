@@ -11,7 +11,7 @@ const SOURCE_DOMAINS = Object.freeze([
 const SOURCE_PATTERN = /^src\/([a-z]+)\/[A-Za-z0-9][A-Za-z0-9._-]*\.mjs$/;
 const DISTRIBUTION_FILES = Object.freeze([
   BIN_PATH, 'src/main.mjs', ...SOURCE_DOMAINS.map((domain) => `src/${domain}/*.mjs`),
-  'README.md', 'LICENSE', 'config.example.json',
+  'README.md', 'CHANGELOG.md', 'LICENSE', 'config.example.json',
   'docs/SELF-HOSTING.md', 'docs/PROTOCOL.md', 'docs/SECURITY.md',
   'docs/MIGRATION.md', 'docs/DEPLOYMENT.md', 'docs/INSTALLATION.md', 'docs/APP-REVIEW.md',
 ]);

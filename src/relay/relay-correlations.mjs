@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isRecord, relayError } from './relay-runtime-registration.mjs';
+import { isApprovalCommand } from '../protocol/approval-protocol.mjs';
+import { SPARK_OPEN_REQUEST, projectSparkOpenResponse } from '../protocol/spark-chat-protocol.mjs';
 
 const MAX_PENDING = 128;
 const RPC_TIMEOUT_MS = 30_000;
@@ -10,12 +12,14 @@ function steeringKey(runtime, body) {
 
 function matchesResponseIdentity(entry, body) {
   const command = entry.command;
+  if (command.type === SPARK_OPEN_REQUEST) return projectSparkOpenResponse(body) !== null;
   if (command.type === 'steer_request') {
     return body.requestId === command.requestId && body.steerId === command.steerId
       && typeof body.accepted === 'boolean';
   }
   if (typeof body.ok !== 'boolean') return false;
-  if (command.type === 'request.events.request' && body.requestId !== command.requestId) return false;
+  if ((command.type === 'request.events.request' || isApprovalCommand(command.type))
+    && body.requestId !== command.requestId) return false;
   // Upload responses intentionally do not echo requestId in the existing runtime.
   if (body.requestId !== undefined && body.requestId !== command.requestId) return false;
   if (command.sessionId !== undefined && body.sessionId !== command.sessionId) return false;
@@ -28,7 +32,7 @@ function matchesResponseIdentity(entry, body) {
     if (!Array.isArray(body.events) || body.events.length > 8192) return false;
     if (body.events.some(event => !isRecord(event) || (event.requestId !== undefined && event.requestId !== command.requestId))) return false;
   }
-  return true;
+  return entry.lifecycle.matches?.(body) ?? true;
 }
 
 export class RelayCorrelations {
@@ -69,7 +73,8 @@ export class RelayCorrelations {
     if (entry.expiresAt <= this.now() || !matchesResponseIdentity(entry, body)) return false;
     // An invalid reply must never consume the genuine request's pending record.
     this.remove(entry);
-    (entry.lifecycle.respond ?? this.respond)(entry, body);
+    const response = entry.command.type === SPARK_OPEN_REQUEST ? projectSparkOpenResponse(body) : body;
+    (entry.lifecycle.respond ?? this.respond)(entry, response);
     return true;
   }
 

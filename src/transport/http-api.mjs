@@ -2,7 +2,7 @@ import { bearerToken, jsonResponse, readJson } from './transport-limits.mjs';
 import { clientCapabilities } from '../cli/client-capabilities.mjs';
 import { handleNotificationHttp } from '../notifications/notification-http.mjs';
 
-export async function handleHttpApi(req, res, { auth, runtimeGrants, relay, sourceId, notifications }) {
+export async function handleHttpApi(req, res, { auth, runtimeGrants, relay, sourceId, notifications, ownership }) {
   const path = req.url;
   if (req.method === 'GET' && path === '/health') return jsonResponse(res, 200, { ok: true, version: 2 });
   if (req.method === 'POST' && path === '/v2/pairing/redeem') {
@@ -24,7 +24,8 @@ export async function handleHttpApi(req, res, { auth, runtimeGrants, relay, sour
   if (req.method === 'GET' && path === '/v2/runtimes') {
     const snapshots = relay.runtimeSnapshot(runtimeGrants.map((grant) => grant.runtimeId));
     return jsonResponse(res, 200, { runtimes: runtimeGrants.map(({ runtimeId, allowedModes }, index) => ({
-      ...snapshots[index], runtimeId, allowedModes, capabilities: clientCapabilities(),
+      ...snapshots[index], runtimeId, allowedModes,
+      capabilities: clientCapabilities({ ownership, runtime: snapshots[index] }),
     })) });
   }
   return jsonResponse(res, 404, { error: 'not_found' });

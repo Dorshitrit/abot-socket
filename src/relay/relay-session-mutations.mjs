@@ -1,5 +1,6 @@
 import { expectedResponseType } from '../protocol/protocol.mjs';
 import { relayError } from './relay-runtime-registration.mjs';
+import { isApprovalCommand } from '../protocol/approval-protocol.mjs';
 
 const MUTATIONS = new Set([
   'session.delete.request', 'session.messages.clear.request', 'session.message.delete.request',
@@ -14,8 +15,8 @@ const sessionKey = (runtime, sessionId) => JSON.stringify([runtime.generation, s
 
 /** A bounded read-before-delete guard, not an atomic lock over independent clients. */
 export class RelaySessionMutations {
-  constructor({ now, correlations, requests, transmit, connected, error, respond }) {
-    Object.assign(this, { now, correlations, requests, transmit, connected, error, respond });
+  constructor({ now, correlations, requests, ownership, transmit, connected, error, respond }) {
+    Object.assign(this, { now, correlations, requests, ownership, transmit, connected, error, respond });
     this.pending = new Map();
   }
 
@@ -25,12 +26,20 @@ export class RelaySessionMutations {
 
   assertNoObservedWork(runtime, sessionId) {
     for (const record of this.requests.bindings.values()) {
-      if (record.runtime !== runtime || record.sessionId !== sessionId) continue;
+      if (record.sessionId !== sessionId) continue;
+      if (record.durable) {
+        if (record.runtime.runtimeId !== runtime.runtimeId) continue;
+        // Unknown durable work needs individual canonical proof below; it is
+        // never treated as completed merely because this relay restarted.
+        if (record.state === 'unknown') continue;
+      } else if (record.runtime !== runtime) continue;
       if (record.state !== 'terminal') throw relayError('session_busy');
     }
     for (const entry of this.correlations.pending.values()) {
       if (entry.runtime === runtime && entry.command.sessionId === sessionId
-        && entry.command.type === 'attachment.upload.request') throw relayError('session_busy');
+        && (entry.command.type === 'attachment.upload.request' || isApprovalCommand(entry.command.type))) {
+        throw relayError('session_busy');
+      }
     }
   }
 
@@ -62,9 +71,34 @@ export class RelaySessionMutations {
         if (request.sessionId !== operation.command.sessionId) throw relayError('session_state_unavailable');
         if (!['completed', 'failed'].includes(request.status)) throw relayError('session_busy');
       }
-      this.send(operation, operation.command, result => this.respond(operation, result));
+      this.reconcileOwnership(operation, body.requests);
+      this.send(operation, operation.command, result => {
+        const wholeSessionRemoved = result.ok && (
+          (operation.command.type === 'session.delete.request' && result.deleted === true)
+          || (operation.command.type === 'session.messages.clear.request' && result.cleared === true));
+        if (wholeSessionRemoved) this.ownership?.retireSession(operation.runtime.runtimeId, operation.command.sessionId);
+        this.respond(operation, result);
+      });
     } catch (error) {
       this.error(operation, error.code ?? 'session_state_unavailable');
+    }
+  }
+
+  reconcileOwnership(operation, canonical) {
+    const runtimeId = operation.runtime.runtimeId;
+    const owners = this.ownership?.listSession(runtimeId, operation.command.sessionId) ?? [];
+    const open = owners.filter(owner => owner.status === 'open');
+    // Missing requests and partial histories are not evidence of completion.
+    for (const owner of open) {
+      if (!canonical.some(request => request.requestId === owner.requestId
+        && request.sessionId === owner.sessionId && ['completed', 'failed'].includes(request.status))) {
+        throw relayError('session_busy');
+      }
+    }
+    for (const owner of open) {
+      this.ownership.markTerminal(runtimeId, owner.requestId);
+      const view = this.requests.bindings.get(JSON.stringify([runtimeId, owner.requestId]));
+      if (view?.durable && view.sessionId === owner.sessionId) this.requests.markTerminal(view);
     }
   }
 

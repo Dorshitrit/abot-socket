@@ -14,13 +14,17 @@ POSIX ownership/permissions and does not support Windows server installation.
 Install the command from the official npm registry:
 
 ```sh
-npm install --global @abot-ai/socket@0.1.0
+npm install --global @abot-ai/socket@0.2.0
 abot-socket --version
 abot-socket setup
 ```
 
 Prefer an explicit version for server upgrades. An installed package uses the
 `abot-socket` command; it does not require a Git checkout or `npm ci`.
+For an existing installation, retain its configuration and follow the
+[state backup and schema upgrade guide](MIGRATION.md#durable-request-ownership-schema-upgrade)
+before replacing the package. `setup` prepares a new configuration; it does not
+migrate or overwrite an existing one.
 
 Alternatively, prepare a tarball from the public source:
 
@@ -35,7 +39,7 @@ npm run check-package -- /tmp/abot-socket-pack.json
 Then install that tarball (or a verified local tarball you already have):
 
 ```sh
-npm install --global ./abot-ai-socket-0.1.0.tgz
+npm install --global ./abot-ai-socket-0.2.0.tgz
 abot-socket --version
 abot-socket setup
 ```
@@ -123,6 +127,13 @@ The file is a credential handoff, not a replacement runtime configuration or a
 second bridge process. This is separate from app pairing; the runtime secret
 must never go into the app.
 No runtime source changes are required by this installer.
+
+Recoverable approvals and continuation of computer-created requests require a
+compatible app and a runtime advertising `request_approvals_v1`. SPARK companion
+chat requires `spark_chat_v1` and a configured SPARK model. The app must check
+the selected runtime's capabilities and readiness, not just the Socket's global
+flags. Earlier clients and runtimes retain their supported legacy chat path;
+upgrading the Socket alone does not enable these runtime features.
 
 ```sh
 abot-socket doctor

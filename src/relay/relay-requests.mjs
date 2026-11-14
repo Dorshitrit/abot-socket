@@ -15,25 +15,81 @@ function canConsumeObservedApproval(approval, approved, now) {
 }
 
 export class RelayRequests {
-  constructor({ now, event, unknown, observe = () => {} }) {
+  constructor({ now, event, unknown, ownership, observe = () => {} }) {
     this.now = now;
     this.event = event;
     this.unknown = unknown;
     this.observe = observe;
+    this.ownership = ownership;
     this.bindings = new Map();
   }
 
   create(client, runtime, command) {
     const key = keyFor(runtime.runtimeId, command.requestId);
-    if (this.bindings.has(key)) throw relayError('request_id_conflict');
-    if (this.bindings.size >= MAX_BINDINGS) throw relayError('request_capacity');
-    const activeCount = [...this.bindings.values()].filter(record => record.state === 'active').length;
-    if (activeCount >= MAX_ACTIVE) throw relayError('active_request_capacity');
+    if (this.bindings.has(key) || this.ownership?.get(runtime.runtimeId, command.requestId)) {
+      throw relayError('request_id_conflict');
+    }
+    this.assertCapacity();
+    const durable = command.approvalMode === 'durable_v1';
+    if (durable) {
+      if (!this.ownership) throw relayError('approval_access_unavailable');
+      if (!runtime.features.includes('request_approvals_v1')) throw relayError('approvals_unsupported');
+      // This commit precedes transport: an uncertain send must never permit a replayed run.
+      this.ownership.create({ subject: client.subject, deviceId: client.sessionId,
+        runtimeId: runtime.runtimeId, sessionId: command.sessionId, requestId: command.requestId });
+    }
     const record = { key, subject: client.subject, deviceId: client.sessionId, runtime, requestId: command.requestId,
-      sessionId: command.sessionId, state: 'active', subscribers: new Set([client]),
-      expiresAt: this.now() + BINDING_TTL_MS, approvals: new Map(), steering: new Set() };
+      sessionId: command.sessionId, state: 'active', subscribers: new Set([client]), durable,
+      expiresAt: durable ? Infinity : this.now() + BINDING_TTL_MS,
+      version: 0, approvals: new Map(), steering: new Set() };
     this.bindings.set(key, record);
     return record;
+  }
+
+  assertCapacity(existing, active = true) {
+    if (!existing && this.bindings.size >= MAX_BINDINGS) throw relayError('request_capacity');
+    const activeCount = [...this.bindings.values()].filter(record => record.state === 'active').length;
+    if (active && existing?.state !== 'active' && activeCount >= MAX_ACTIVE) {
+      throw relayError('active_request_capacity');
+    }
+  }
+
+  /** Restore a delivery view, not authority to execute or approve the saved request. */
+  restore(client, runtime, owner) {
+    const key = keyFor(runtime.runtimeId, owner.requestId);
+    const previous = this.bindings.get(key);
+    if (previous && (!previous.durable || previous.subject !== owner.subject
+      || previous.sessionId !== owner.sessionId)) throw relayError('request_not_owned');
+    const active = owner.status !== 'terminal';
+    const reusable = previous?.runtime === runtime && previous.state === (active ? 'active' : 'terminal');
+    this.assertCapacity(previous, active);
+    const record = reusable ? previous : { key, subject: owner.subject, deviceId: owner.deviceId,
+      runtime, sessionId: owner.sessionId, requestId: owner.requestId, durable: true,
+      state: active ? 'active' : 'terminal', expiresAt: active ? Infinity : owner.terminalAt + BINDING_TTL_MS,
+      version: 0, subscribers: new Set(previous?.subscribers), approvals: new Map(), steering: new Set() };
+    const wasSubscribed = record.subscribers.has(client);
+    const version = record.version;
+    record.subscribers.add(client);
+    this.bindings.set(key, record);
+    return { record, rollback: () => {
+      if (this.bindings.get(key) !== record || record.version !== version) return;
+      if (!reusable) {
+        if (!wasSubscribed) record.subscribers.delete(client);
+        if (previous) {
+          previous.subscribers = new Set(record.subscribers);
+          this.bindings.set(key, previous);
+        }
+        else this.bindings.delete(key);
+      } else if (!wasSubscribed) record.subscribers.delete(client);
+    } };
+  }
+
+  markTerminal(record) {
+    if (record.durable) this.ownership.markTerminal(record.runtime.runtimeId, record.requestId);
+    record.state = 'terminal';
+    record.expiresAt = this.now() + BINDING_TTL_MS;
+    record.version += 1;
+    this.invalidateApprovals(record);
   }
 
   owned(client, runtime, requestId, requireActive = false) {
@@ -61,7 +117,7 @@ export class RelayRequests {
 
   consumeApproval(client, runtime, body) {
     for (const record of this.bindings.values()) {
-      if (record.runtime !== runtime || record.subject !== client.subject || record.state !== 'active') continue;
+      if (record.durable || record.runtime !== runtime || record.subject !== client.subject || record.state !== 'active') continue;
       const approval = record.approvals.get(body.approvalId);
       if (!approval) continue;
       if (!canConsumeObservedApproval(approval, body.approved, this.now())) throw relayError('approval_not_pending');
@@ -78,7 +134,7 @@ export class RelayRequests {
     if (!record || record.runtime !== runtime || record.state !== 'active') return false;
     if (!this.acceptSessionIdentity(record, body)) return false;
     if (body.type === 'event' && (typeof body.name !== 'string' || body.name.length > 256)) return false;
-    if (body.type === 'event' && body.name === 'tool.approval.required') {
+    if (!record.durable && body.type === 'event' && body.name === 'tool.approval.required') {
       if (!this.observeApproval(record, body.approvalId)) return false;
     }
     if (body.type === 'event' && ['tool.approval.granted', 'tool.approval.rejected'].includes(body.name)) {
@@ -86,10 +142,9 @@ export class RelayRequests {
       if (approval) approval.state = 'closed';
     }
     if (body.type === 'completed' || body.type === 'failed') {
-      record.state = 'terminal';
-      record.expiresAt = this.now() + BINDING_TTL_MS;
-      this.invalidateApprovals(record);
+      this.markTerminal(record);
     }
+    record.version += 1;
     try {
       this.observe({ deviceId: record.deviceId, runtimeId: runtime.runtimeId,
         sessionId: record.sessionId, requestId: record.requestId }, body);
@@ -99,6 +154,7 @@ export class RelayRequests {
   }
 
   acceptSessionIdentity(record, body) {
+    if (record.durable) return body.sessionId === record.sessionId;
     if (body.sessionId === undefined || body.sessionId === null) return true;
     if (!isRelayId(body.sessionId)) return false;
     if (record.sessionId && record.sessionId !== body.sessionId) return false;
@@ -126,7 +182,7 @@ export class RelayRequests {
   markUnknown(record, notify = true) {
     if (record.state !== 'active') return;
     record.state = 'unknown';
-    record.expiresAt = this.now() + BINDING_TTL_MS;
+    record.expiresAt = record.durable ? Infinity : this.now() + BINDING_TTL_MS;
     this.invalidateApprovals(record);
     if (notify) for (const client of record.subscribers) this.unknown(client, record);
   }

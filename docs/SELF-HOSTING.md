@@ -131,8 +131,15 @@ Back up the private configuration, runtime credential and state directory using
 a consistent filesystem/database snapshot or with the service stopped. Losing
 state requires pairing devices again. Restoring an old backup may restore old
 revocation state; reapply necessary revocations. Conversation history remains in
-each runtime. Temporary relay routes do not survive restart, so reconcile
-interrupted requests with runtime history rather than automatically resending.
+each runtime. Temporary relay routes do not survive restart. Durable request
+ownership does: a compatible app can query current approvals on a runtime
+advertising `request_approvals_v1` and restore live delivery for that request.
+This does not reconstruct missed events or resend interrupted work; reconcile
+against current runtime state before retrying.
+
+Version 0.2.0 uses state schema v4. See the
+[upgrade and rollback procedure](MIGRATION.md#durable-request-ownership-schema-upgrade)
+before upgrading; older binaries require the matching pre-upgrade state backup.
 
 The package does not provision a public TLS endpoint or install a service.
 Real-device, proxy and runtime verification remains separate from automated tests.

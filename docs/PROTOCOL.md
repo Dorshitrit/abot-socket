@@ -87,7 +87,9 @@ capability flags. Client commands use `{id, runtimeId, body}`. IDs must be uniqu
 per connection. Supported body types are:
 
 - `run_request`, `steer_request`, `tool_approval_response`;
+- `request.approvals.request`, `request.approval.decide.request` for an owned request on a capable runtime;
 - `session.list.request`, `session.snapshot.request`, `request.events.request`;
+- `spark.chat.open.request` on a SPARK-capable runtime;
 - `session.delete.request`, `session.messages.clear.request`, `session.message.delete.request`;
 - `attachment.upload.request`, `attachment.fetch.request`;
 - relay-local `subscribe_request` for a known request belonging to this owner.
@@ -101,6 +103,34 @@ are rejected rather than forwarded as a generic admin API.
 Tool permission values are `ask`, `full_access`, and `full_plus`, constrained by
 the runtime grant. Setup grants only `ask`. The model catalog and supported
 reasoning controls come from the connected runtime, not a hardcoded model list.
+
+### SPARK companion chat
+
+The Socket advertises `authenticated.capabilities.sparkChat`. Each runtime in
+`/v2/runtimes` reports this capability only when online and advertising
+`spark_chat_v1`. Clients must check the per-runtime capability; a runtime feature
+alone does not establish support in an older Socket.
+
+Send `{type:'spark.chat.open.request'}` inside the usual authenticated command
+envelope. The client supplies no session, model, permission or correlation fields.
+The correlated `spark.chat.open.response` contains `ok`, the canonical
+`sessionId:'spark-companion'`, `modelProfileId` (or null), `toolPermissionMode` and
+`readiness` (`ready`, `model_required`, or `model_unavailable`). Failure responses
+contain a bounded public error code. Other runtime fields are not forwarded.
+
+Opening creates or reuses the marked companion without starting a model request.
+Load history and recover waiting approvals through the existing APIs. Send chat
+through `run_request` with the returned session and permission mode; the runtime
+selects its configured SPARK model. Opening can report a mode above the relay's
+grant, but does not authorize it: the existing grant check rejects that send.
+The runtime also rejects a mode changed since open with
+`spark_chat_permission_mismatch`; refresh state and let the user retry, never
+silently increase permissions or automatically resubmit an uncertain request.
+
+Unsupported runtimes reject SPARK open/run with `spark_chat_unsupported`.
+Correlations remain bound to the requesting client and exact runtime connection,
+are consumed once, and expire after 30 seconds. This contract does not expose
+SPARK settings writes, collection, jobs or autonomous activity.
 
 ### Session mutations
 
@@ -149,28 +179,87 @@ cannot authenticate this role.
 ## Recovery and capability limits
 
 - A timeout or disconnect can return `outcome_unknown`; do not retry commands
-  automatically. Read canonical runtime history/replay to reconcile the result.
+  automatically. Read canonical runtime history/replay to reconcile the result;
+  the durable decision retry rules below apply only to that decision, never a run.
 - Live `eventSequence` and replay `seqNo` are separate counters. `afterSeq` uses
   the persisted replay counter only.
-- Approval authority requires an observed pending approval for the correct
-  runtime and request. Historical replay alone does not restore that authority.
-  Positive approval expires after five minutes; an explicit decline can remain
-  possible once on that same active runtime connection and request.
-- `cancel` and `durableApprovals` are advertised as false. Restart, cron,
-  configuration, and generic administration are not exposed.
-- The relay keeps bounded temporary routing state. It is not an offline queue,
-  durable conversation store, or exactly-once execution service.
+- Legacy `tool_approval_response` requires a live observed pending approval for
+  the correct owner, runtime and request. Positive approval expires after five
+  minutes; an explicit decline can remain possible once on that same active
+  runtime connection and request. Historical replay never creates authority.
+- `cancel` remains false. Restart, cron, configuration, and generic administration
+  are not exposed.
+- The relay keeps bounded routing state and persistent durable-request ownership
+  metadata. It is not an offline queue, conversation store, or exactly-once
+  execution service.
+
+### Durable approval recovery
+
+The WebSocket `authenticated.capabilities.durableApprovals` flag describes
+whether the Socket has the persistent ownership store required by this API.
+Each `/v2/runtimes` entry reports the flag separately: it is true only while that
+runtime is online and advertises `request_approvals_v1`. Clients must check the
+chosen runtime, not infer its support from the global flag. Older runtimes remain
+usable through the legacy path.
+
+To opt in, a new `run_request` includes `approvalMode:'durable_v1'`. Omitting it
+retains legacy behavior. The relay persists its owner, originating device,
+runtime, session and request identity before forwarding the run. It does not
+persist the prompt, approval payload, decision or runtime continuation. An
+unavailable capability rejects the opt-in instead of silently downgrading it.
+
+| Request body | Response body inside `relay.response` |
+| --- | --- |
+| `{type:'request.approvals.request', sessionId, requestId}` | `{type:'request.approvals.response', correlationId, sessionId, requestId, ok:true, approvals:[{request,wait?}], lifecycle, finalState}` |
+| `{type:'request.approval.decide.request', sessionId, requestId, approvalId, approved, reason?, generation?, waitId?, revision?, commandId?}` | `{type:'request.approval.decide.response', correlationId, sessionId, requestId, ok:true, result:{accepted,duplicate?,reason?}}` |
+
+Runtime failures use `ok:false,error` with the same scope. The relay assigns the
+private correlation; clients correlate the outer command `id`. Only a response
+from the current runtime connection with matching request, session and correlation
+is accepted. One approval query/decision per request may be in flight at a time.
+
+Recovery requires a durable ownership record admitted by this Socket. When an
+authorized paired device queries approvals for a request created directly on
+its runtime, the relay can establish that record after a fresh, privately
+correlated snapshot from the current runtime connection confirms the exact
+session and request. Client-provided history or a replayed
+`tool.approval.required` event cannot establish ownership. An existing record
+for another owner or session is never reassigned. A decision alone cannot
+establish ownership; query the current approvals first.
+After a Socket or runtime restart, an authenticated device belonging to the same
+installation owner may recover the request; revoking the originating device does
+not transfer its credential or notification inbox. Recovery also restores live
+delivery for that request. It does not rerun it or reconstruct missed events.
+
+The runtime remains authoritative for pending approvals and their lifecycle.
+Durable waits do not inherit the relay's legacy five-minute approval timeout.
+For a returned `wait`, send its exact `generation`, `waitId` and `revision` together
+with a stable client-generated `commandId`. All four fields are required together;
+omit all four only for a legacy approval returned by the runtime. Do not substitute
+new wait identities when retrying an uncertain decision. Reuse the original
+decision and `commandId` so the runtime can recognize its durable receipt, then
+reload canonical state. Accepted duplicate decisions must not execute the action
+again. A declined or stale decision remains a refusal, not an invitation to retry
+against a newer approval.
+
+Ownership storage is capped at 512 records. Open records are not age-evicted;
+confirmed terminal records are retained for 12 hours, or removed after confirmed
+deletion of their complete session. Capacity exhaustion rejects new admission.
 
 Use the new pairing-capable client. Email-only personal builds cannot enroll
-through this authentication contract. Existing runtime adapters are unchanged.
+through this authentication contract. Clients and runtime adapters that omit the
+durable approval opt-in retain legacy behavior.
 
 ## Notifications
 
 `capabilities.notifications: true` advertises the authenticated notification API.
-Notifications are owned by the **paired device that initiated the request**, not
-by its current WebSocket connection. Other paired devices cannot list or mark
-that device's records. There are no new unsolicited WebSocket frame types;
-clients poll the inbox while foregrounded and reconcile on resume or push tap.
+Notifications are owned by the **paired device that initiated the request**, or
+by the **device that first adopts an unowned computer-created request** through
+the verified recovery flow above. Ownership does not follow the current
+WebSocket connection: later recovery by another paired device does not transfer
+the notification inbox. Other paired devices cannot list or mark that device's
+records. There are no new unsolicited WebSocket frame types; clients poll the
+inbox while foregrounded and reconcile on resume or push tap.
 
 | Method and path | Request / response |
 | --- | --- |
@@ -211,10 +300,14 @@ Expiration, logout and revocation remove registrations and pending deliveries.
 The outbox retries at most five times, with bounded backoff. Duplicate source
 events are deduplicated, but provider delivery is not an exactly-once guarantee.
 
-The inbox and queued deliveries survive relay restarts. In-flight request routing
-does not: this is not a complete runtime-wide event subscription or an offline
-execution queue. Web UI, schedules and autonomous SPARK events are outside this
-phase. Never interpret a missing notification as a failed request or auto-retry it.
+The inbox and queued deliveries survive relay restarts. Live subscriptions must
+be restored explicitly; durable ownership permits the scoped recovery described
+above. This is not a complete runtime-wide event subscription or an offline
+execution queue. Work started outside the relay has no automatic notification
+subscription. After an existing computer request is verified and adopted, later
+validated live events for that request can create notifications for its adopting
+device; recovery does not backfill missed notifications. Never interpret a missing
+notification as a failed request or auto-retry it.
 
 Push is disabled unless private operator configuration includes
 `notifications.delivery`. A self-built client uses

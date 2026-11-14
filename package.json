@@ -1,6 +1,6 @@
 {
   "name": "@abot-ai/socket",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
@@ -50,6 +50,7 @@
     "src/setup/*.mjs",
     "src/transport/*.mjs",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "config.example.json",
     "docs/SELF-HOSTING.md",

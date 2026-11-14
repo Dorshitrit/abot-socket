@@ -3,6 +3,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AuthService } from '../auth/auth.mjs';
 import { Relay } from '../relay/relay.mjs';
+import { RequestOwnershipStore } from '../relay/request-ownership-store.mjs';
 import { handleHttpApi } from './http-api.mjs';
 import { WindowLimiter, sameAuthority, jsonResponse, bearerToken, trustedClientAddress } from './transport-limits.mjs';
 import { resolveRuntimeCredential, validateRuntimeGrants } from '../auth/runtime-credentials.mjs';
@@ -22,9 +23,11 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
   const runtimeGrants = validateRuntimeGrants(grants);
   const database = new AuthDatabase(stateDirectory);
   let auth;
+  let ownership;
   let notifications;
   try {
     auth = new AuthService({ database, now });
+    ownership = new RequestOwnershipStore({ database, now });
     notifications = new NotificationService({ database, now,
       delivery: notificationDelivery ?? createNotificationDelivery(notificationConfig?.delivery ?? { type: 'disabled' }) });
   } catch (error) {
@@ -51,7 +54,14 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
     peer.send(encoded, (error) => { if (error) peer.terminate(); });
     return true;
   };
-  const relay = new Relay({ now, send, close, observeRequest: (identity, body) => notifications.observe(identity, body) });
+  const relay = new Relay({ now, send, close, ownership,
+    isClientAuthorized: client => {
+      const context = peers.get(client.peer);
+      if (context?.role !== 'client') return false;
+      const principal = auth.authenticate(context.token);
+      return principal?.subject === client.subject && principal.sessionId === client.sessionId;
+    },
+    observeRequest: (identity, body) => notifications.observe(identity, body) });
   const authorityAccepted = (req) => sameAuthority(req, origin) &&
     (Boolean(req.socket.encrypted) || req.headers['x-forwarded-proto'] === 'https');
   const handler = async (req, res) => {
@@ -60,7 +70,7 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
       const sourceId = trustedClientAddress(req);
       if (!sourceId) return jsonResponse(res, 403, { error: 'untrusted_proxy' });
       if (!requests.allow(sourceId)) return jsonResponse(res, 429, { error: 'rate_limited' });
-      await handleHttpApi(req, res, { auth, runtimeGrants, relay, sourceId, notifications });
+      await handleHttpApi(req, res, { auth, runtimeGrants, relay, sourceId, notifications, ownership });
     } catch (error) {
       const status = [400, 401, 403, 404, 409, 413, 415, 429, 503].includes(error.status) ? error.status : 500;
       const code = status === 500 ? 'internal_error' :
@@ -86,7 +96,7 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
       allowedRuntimeIds: runtimeGrants.map((grant) => grant.runtimeId) });
     if (admitted === false) { close(peer, 1013, 'Capacity exceeded'); return; }
     send(peer, { type: 'authenticated', sessionId: principal.sessionId, expiresAt: principal.expiresAt,
-      capabilities: clientCapabilities() });
+      capabilities: clientCapabilities({ ownership }) });
   };
 
   server.on('upgrade', (req, socket, head) => {

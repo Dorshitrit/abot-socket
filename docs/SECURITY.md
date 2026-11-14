@@ -60,9 +60,27 @@ and rejects unsupported operations. These controls do not make a compromised
 authorized device harmless: it can act within its owner's configured grants.
 Revoking that device session removes its relay access.
 
+Paired owner devices can continue requests started directly on an authorized
+runtime. Before admitting an unowned request for approval recovery, the relay
+verifies its exact session/request identity through a fresh response from that
+runtime connection. It never replaces an existing ownership binding for a
+different owner or session. The runtime still validates every approval decision
+against its current wait; a session snapshot is not approval authority.
+
 The relay does not automatically retry uncertain operations, restore approval
 authority from historical events, or provide exactly-once execution. After a
 disconnect, reconcile against runtime history before resubmission.
+
+## SPARK chat boundary
+
+SPARK chat uses the same paired-device runtime access and tool-permission ceiling
+as ordinary chat. Opening it exposes only the canonical session, selected model,
+permission mode and model readiness, never the full preferences or internal
+diagnostics. Runtime support is required before dispatch. The runtime remains
+responsible for its marked companion and rereads its policy at every new send;
+the relay never caches that policy as permission to execute. Existing approval
+ownership and recovery checks remain in force. SPARK configuration and autonomous
+activity are outside this API.
 
 ## Push preview boundary
 

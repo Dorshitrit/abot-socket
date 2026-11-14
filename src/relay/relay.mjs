@@ -3,19 +3,23 @@ import { normalizeClientCommand, expectedResponseType } from '../protocol/protoc
 import { createRelayClient, admitRelayCommand } from './relay-client-admission.mjs';
 import { RelayCorrelations } from './relay-correlations.mjs';
 import { RelayRequests } from './relay-requests.mjs';
+import { RelayApprovals } from './relay-approvals.mjs';
+import { isApprovalCommand } from '../protocol/approval-protocol.mjs';
+import { assertSparkChatSupported } from '../protocol/spark-chat-protocol.mjs';
 import { RelaySessionMutations, isSessionMutation } from './relay-session-mutations.mjs';
 import { isBoundedRuntimeFrame, isRelayId, parseRuntimeRegistration,
   validateRuntimeGrant, relayError } from './relay-runtime-registration.mjs';
 
 export class Relay {
-  constructor({ now = Date.now, send, close, observeRequest }) {
+  constructor({ now = Date.now, send, close, observeRequest, ownership, isClientAuthorized = () => true }) {
     this.now = now;
     this.send = send;
     this.close = close;
+    this.ownership = ownership;
     this.clients = new Map();
     this.runtimes = new Map();
     this.runtimePeers = new Map();
-    this.requests = new RelayRequests({ now, observe: observeRequest,
+    this.requests = new RelayRequests({ now, ownership, observe: observeRequest,
       event: (client, runtimeId, body) => this.deliver(client, { type: 'relay.event', runtimeId, body }),
       unknown: (client, record) => this.error(client.peer, undefined, record.runtime.runtimeId,
         'outcome_unknown', { requestId: record.requestId }),
@@ -25,8 +29,17 @@ export class Relay {
         runtimeId: entry.runtime.runtimeId, body }),
       unknown: entry => this.error(entry.client.peer, entry.id, entry.runtime.runtimeId, 'outcome_unknown'),
     });
+    this.approvals = new RelayApprovals({ ownership, requests: this.requests, correlations: this.correlations,
+      transmit: (peer, body) => this.transmit(peer, body),
+      connected: client => this.clients.get(client.peer) === client && isClientAuthorized(client),
+      currentRuntime: runtime => this.runtimes.get(runtime.runtimeId) === runtime && runtime.registered,
+      assertSessionAvailable: (runtime, sessionId) => this.sessionMutations.assertNoPending(runtime, sessionId),
+      respond: (client, runtime, id, body) => this.deliver(client, { type: 'relay.response', id,
+        runtimeId: runtime.runtimeId, body }),
+      error: (client, runtime, id, code) => this.error(client.peer, id, runtime.runtimeId, code),
+    });
     this.sessionMutations = new RelaySessionMutations({ now, correlations: this.correlations,
-      requests: this.requests, transmit: (peer, body) => this.transmit(peer, body),
+      requests: this.requests, ownership, transmit: (peer, body) => this.transmit(peer, body),
       connected: client => this.clients.get(client.peer) === client,
       error: (operation, code) => this.error(operation.client.peer, operation.id, operation.runtime.runtimeId, code),
       respond: (operation, body) => this.deliver(operation.client, { type: 'relay.response',
@@ -136,11 +149,16 @@ export class Relay {
   }
 
   dispatch(client, runtime, id, command) {
-    if (isSessionMutation(command.type)) return this.sessionMutations.dispatch(client, runtime, id, command);
-    if (['run_request', 'attachment.upload.request'].includes(command.type)) {
+    assertSparkChatSupported(command, runtime);
+    if (isSessionMutation(command.type)) {
+      this.approvals.adoption.assertNoPendingSession(runtime, command.sessionId);
+      return this.sessionMutations.dispatch(client, runtime, id, command);
+    }
+    if (['run_request', 'attachment.upload.request'].includes(command.type) || isApprovalCommand(command.type)) {
       this.sessionMutations.assertNoPending(runtime, command.sessionId);
     }
     if (command.type === 'run_request') return this.dispatchRun(client, runtime, id, command);
+    if (isApprovalCommand(command.type)) return this.approvals.dispatch(client, runtime, id, command);
     if (command.type === 'subscribe_request') {
       this.requests.subscribe(client, runtime, command.requestId);
       return this.acknowledge(client, runtime, id, { requestId: command.requestId, status: 'subscribed' });
@@ -155,6 +173,7 @@ export class Relay {
   }
 
   dispatchRun(client, runtime, id, command) {
+    this.approvals.adoption.assertNoPendingRequest(runtime, command.requestId);
     const record = this.requests.create(client, runtime, command);
     if (!this.transmit(runtime.peer, command)) {
       this.requests.markUnknown(record, false);
@@ -198,5 +217,6 @@ export class Relay {
     }
     this.correlations.prune();
     this.requests.prune();
+    this.ownership?.prune();
   }
 }

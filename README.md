@@ -6,6 +6,7 @@ computers. The relay does not require an ABot-hosted account or backend.
 
 The source is available under the [MIT license](LICENSE). Install the versioned
 `@abot-ai/socket` package from npm, or build a local tarball from source.
+See the [changelog](CHANGELOG.md) for release notes and upgrade requirements.
 
 ## Install and prepare
 
@@ -14,7 +15,7 @@ guide for installing the command, preparing a server, connecting a runtime and
 pairing the app by QR or manual entry.
 
 ```sh
-npm install --global @abot-ai/socket@0.1.0
+npm install --global @abot-ai/socket@0.2.0
 abot-socket setup
 ```
 
@@ -49,27 +50,39 @@ ABot App scans the private pairing QR and asks you to confirm its server address
 Manual code, HTTPS URL and temporary-key entry remains available. The app receives
 its own device credential; never copy the runtime credential into the app.
 
-The relay supports chat, steering, observed tool approvals, runtime history,
-model selection and attachments through the existing bridge. It does not execute
-models or store conversation history. Runtime configuration uses the existing
-bridge adapter; runtime source changes are not part of this project.
+The relay supports chat, steering, tool approvals, runtime history, model selection
+and attachments through the runtime Bridge. Compatible clients can recover pending
+approvals across reconnects and restarts, continue requests created on their
+computer, and open the runtime's SPARK companion chat. SPARK model settings and
+permissions remain runtime-owned; management and proactive activity are not exposed.
+These features require the selected runtime to advertise `request_approvals_v1`
+or `spark_chat_v1` respectively; older runtimes retain the legacy chat path.
+The relay does not execute models or store conversation history. Configure the
+runtime's existing Bridge; this installer does not modify runtime source.
 
 Device sessions last up to 30 days without sliding renewal and survive restarts
 in a private SQLite database. Operators can list and revoke devices locally.
 The device-scoped notification inbox records completion, failure and observed
-approval requests initiated through this relay. Push delivery is off by default;
+approval events for routed requests. Notifications belong to the initiating device
+or the device that first recovers a computer-created request through the verified
+ownership flow; later recovery by another device does not transfer that inbox.
+Push delivery is off by default;
 operators may configure their own FCM sender or an explicitly trusted ABot push
 gateway. Notifications are generic by default. An optional per-device encrypted
 preview can show a bounded final-answer excerpt; the gateway/provider never gets
 the preview key or plaintext. The app remains usable without push.
-Cancellation, durable approval restoration and recovery of events missed while
-the relay/runtime is disconnected are not implemented. The relay host is trusted and can read routed content;
-transport encryption is not end-to-end encryption.
+Cancellation and reconstruction of events missed while disconnected are not
+implemented. Approval recovery queries current runtime state and restores scoped
+live delivery; it never automatically resends an interrupted request. The relay
+host is trusted and can read routed content; transport encryption is not end-to-end
+encryption.
 
-Notification metadata and pending deliveries share the private SQLite state.
-Upgrading migrates schema v1 or v2 to v3 without replacing paired devices. Back up the
-private state before deploying: an older binary cannot open the new schema.
-See [notification protocol and delivery](docs/PROTOCOL.md#notifications).
+Notification metadata, pending deliveries and durable request ownership share the
+private SQLite state. Upgrading migrates schema v1, v2 or v3 to v4 without replacing
+paired devices. Back up the private state and matching code while stopped before
+upgrading. Older binaries cannot open v4; rollback requires the matching state
+backup and old code together. See [migration](docs/MIGRATION.md#durable-request-ownership-schema-upgrade)
+and [notification protocol and delivery](docs/PROTOCOL.md#notifications).
 
 ## Source layout
 

@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { normalizeClientCommand, expectedResponseType } from '../protocol/protocol.mjs';
 import { createRelayClient, admitRelayCommand } from './relay-client-admission.mjs';
 import { RelayCorrelations } from './relay-correlations.mjs';
+import { RelayAgentNotifications } from './relay-agent-notifications.mjs';
 import { RelayRequests } from './relay-requests.mjs';
 import { RelayApprovals } from './relay-approvals.mjs';
+import { AGENTS_FEATURE, isAgentCommand } from '../protocol/agents-protocol.mjs';
 import { isApprovalCommand } from '../protocol/approval-protocol.mjs';
 import { assertSparkChatSupported } from '../protocol/spark-chat-protocol.mjs';
 import { RelaySessionMutations, isSessionMutation } from './relay-session-mutations.mjs';
@@ -11,14 +13,17 @@ import { isBoundedRuntimeFrame, isRelayId, parseRuntimeRegistration,
   validateRuntimeGrant, relayError } from './relay-runtime-registration.mjs';
 
 export class Relay {
-  constructor({ now = Date.now, send, close, observeRequest, ownership, isClientAuthorized = () => true }) {
+  constructor({ now = Date.now, send, close, observeRequest, observeAgentNotification, ownership, isClientAuthorized = () => true }) {
     this.now = now;
+    this.isClientAuthorized = isClientAuthorized;
     this.send = send;
     this.close = close;
     this.ownership = ownership;
     this.clients = new Map();
     this.runtimes = new Map();
     this.runtimePeers = new Map();
+    this.agentNotifications = new RelayAgentNotifications({ now, observe: observeAgentNotification,
+      transmit: (peer, body) => this.transmit(peer, body) });
     this.requests = new RelayRequests({ now, ownership, observe: observeRequest,
       event: (client, runtimeId, body) => this.deliver(client, { type: 'relay.event', runtimeId, body }),
       unknown: (client, record) => this.error(client.peer, undefined, record.runtime.runtimeId,
@@ -77,7 +82,7 @@ export class Relay {
       const identity = validateRuntimeGrant(grant);
       if (this.runtimes.has(identity.runtimeId) || this.runtimes.size >= 32) return false;
       const runtime = { ...identity, peer, generation: randomUUID(), registered: false,
-        registerBy: this.now() + 5_000, features: [], modelCatalog: null };
+        registerBy: this.now() + 5_000, features: [], modelCatalog: null, agentSubscribers: new Set() };
       this.runtimePeers.set(peer, runtime);
       this.runtimes.set(runtime.runtimeId, runtime);
       return true;
@@ -110,7 +115,7 @@ export class Relay {
     Object.assign(runtime, registration, { registered: true });
     const reply = { type: 'registered', agentId: runtime.runtimeId, ok: true,
       modelCatalog: { accepted: true, source: runtime.modelCatalog ? 'runtime' : 'legacy' },
-      features: runtime.features };
+      features: runtime.features, ...this.agentNotifications.registration(runtime) };
     if (!this.transmit(runtime.peer, reply)) this.terminate(runtime.peer, 'transport_unavailable');
   }
 
@@ -122,6 +127,11 @@ export class Relay {
     try {
       if (body.type === 'register') return this.register(runtime, body);
       if (!runtime.registered) return this.terminate(peer, 'registration_required');
+      if (body.type === 'agents.notification') return this.agentNotifications.receive(runtime, body);
+      if (body.type === 'agents.changed') {
+        if (!runtime.features.includes(AGENTS_FEATURE) || !Number.isSafeInteger(body.revision) || body.revision < 0) return;
+        return this.notifyAgentSubscribers(runtime, { type: 'agents.changed', revision: body.revision });
+      }
       if (this.correlations.receive(runtime, body)) return;
       this.requests.receive(runtime, body);
     } catch (error) {
@@ -150,6 +160,17 @@ export class Relay {
 
   dispatch(client, runtime, id, command) {
     assertSparkChatSupported(command, runtime);
+    if (isAgentCommand(command.type)) {
+      if (!runtime.features.includes(AGENTS_FEATURE)) throw relayError('agents_unsupported');
+      if (command.type === 'agents.subscribe.request' || command.type === 'agents.unsubscribe.request') {
+        const subscribed = command.type === 'agents.subscribe.request';
+        if (subscribed) runtime.agentSubscribers.add(client);
+        else runtime.agentSubscribers.delete(client);
+        return this.deliver(client, { type: 'relay.response', id, runtimeId: runtime.runtimeId,
+          body: { type: expectedResponseType(command.type), ok: true, data: { subscribed } } });
+      }
+      command = { ...command, allowedModes: [...runtime.allowedModes] };
+    }
     if (isSessionMutation(command.type)) {
       this.approvals.adoption.assertNoPendingSession(runtime, command.sessionId);
       return this.sessionMutations.dispatch(client, runtime, id, command);
@@ -196,10 +217,19 @@ export class Relay {
     if (!this.transmit(runtime.peer, command)) this.correlations.fail(entry);
   }
 
+  notifyAgentSubscribers(runtime, body) {
+    for (const client of runtime.agentSubscribers) {
+      if (client.allowedRuntimeIds.has(runtime.runtimeId) && this.isClientAuthorized(client)) {
+        this.deliver(client, { type: 'relay.event', runtimeId: runtime.runtimeId, body });
+      }
+    }
+  }
+
   disconnect(peer) {
     const client = this.clients.get(peer);
     if (client) {
       this.clients.delete(peer);
+      for (const runtime of this.runtimePeers.values()) runtime.agentSubscribers.delete(client);
       this.requests.disconnectClient(client);
       this.correlations.disconnectClient(client);
     }
@@ -207,6 +237,8 @@ export class Relay {
     if (!runtime) return;
     this.runtimePeers.delete(peer);
     if (this.runtimes.get(runtime.runtimeId) === runtime) this.runtimes.delete(runtime.runtimeId);
+    this.notifyAgentSubscribers(runtime, { type: 'agents.subscription.invalidated', reason: 'runtime_disconnected' });
+    runtime.agentSubscribers.clear();
     this.correlations.disconnectRuntime(runtime);
     this.requests.disconnectRuntime(runtime);
   }

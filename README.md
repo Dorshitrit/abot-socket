@@ -15,7 +15,7 @@ guide for installing the command, preparing a server, connecting a runtime and
 pairing the app by QR or manual entry.
 
 ```sh
-npm install --global @abot-ai/socket@0.2.0
+npm install --global @abot-ai/socket@0.3.0
 abot-socket setup
 ```
 
@@ -39,6 +39,11 @@ the paired app. `abot-socket pair` creates fresh one-time pairing details and
 displays a private QR in a capable terminal. Scanner-enabled clients can scan it
 and confirm the server address; manual entry remains available.
 
+To connect another computer, use [`abot-socket add-runtime`](docs/SELF-HOSTING.md#add-a-second-or-third-computer)
+with a unique Runtime ID and a new private output directory. It preserves existing
+grants and phone pairing, gives the new computer `ask` permission, and leaves
+service restart to the operator.
+
 ## Scope
 
 One installation represents one owner, with up to 10 paired devices and 16
@@ -57,31 +62,39 @@ computer, and open the runtime's SPARK companion chat. SPARK model settings and
 permissions remain runtime-owned; management and proactive activity are not exposed.
 These features require the selected runtime to advertise `request_approvals_v1`
 or `spark_chat_v1` respectively; older runtimes retain the legacy chat path.
+Runtimes advertising `agents_v1` also support scoped Agent workspaces, messages,
+tasks, schedules, authoring previews and approvals. Clients can subscribe to
+change hints and refresh the public workspace after reconnecting.
 The relay does not execute models or store conversation history. Configure the
 runtime's existing Bridge; this installer does not modify runtime source.
 
 Device sessions last up to 30 days without sliding renewal and survive restarts
 in a private SQLite database. Operators can list and revoke devices locally.
 The device-scoped notification inbox records completion, failure and observed
-approval events for routed requests. Notifications belong to the initiating device
+approval events for routed requests. Session notifications belong to the initiating device
 or the device that first recovers a computer-created request through the verified
 ownership flow; later recovery by another device does not transfer that inbox.
+Compatible clients can also receive durable Agent replies and attention notices
+without an open phone or Web connection. This requires Runtime negotiation of
+`agents_notifications_v1` and client Agent-notification support; older clients
+retain their session-only inbox. Replayed events do not create duplicate notices.
 Push delivery is off by default;
 operators may configure their own FCM sender or an explicitly trusted ABot push
 gateway. Notifications are generic by default. An optional per-device encrypted
 preview can show a bounded final-answer excerpt; the gateway/provider never gets
 the preview key or plaintext. The app remains usable without push.
-Cancellation and reconstruction of events missed while disconnected are not
-implemented. Approval recovery queries current runtime state and restores scoped
+Cancellation of ordinary session requests and reconstruction of missed live
+session events are not implemented. Approval recovery queries current runtime
+state and restores scoped
 live delivery; it never automatically resends an interrupted request. The relay
 host is trusted and can read routed content; transport encryption is not end-to-end
 encryption.
 
 Notification metadata, pending deliveries and durable request ownership share the
-private SQLite state. Upgrading migrates schema v1, v2 or v3 to v4 without replacing
+private SQLite state. Version 0.3.0 migrates schemas v1 through v4 to v5 without replacing
 paired devices. Back up the private state and matching code while stopped before
-upgrading. Older binaries cannot open v4; rollback requires the matching state
-backup and old code together. See [migration](docs/MIGRATION.md#durable-request-ownership-schema-upgrade)
+upgrading. Older binaries cannot open v5; rollback requires the matching state
+backup and old code together. See [migration](docs/MIGRATION.md#agent-notification-schema-upgrade)
 and [notification protocol and delivery](docs/PROTOCOL.md#notifications).
 
 ## Source layout

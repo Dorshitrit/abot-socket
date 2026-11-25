@@ -253,13 +253,15 @@ durable approval opt-in retain legacy behavior.
 ## Notifications
 
 `capabilities.notifications: true` advertises the authenticated notification API.
-Notifications are owned by the **paired device that initiated the request**, or
+Session notifications are owned by the **paired device that initiated the request**, or
 by the **device that first adopts an unowned computer-created request** through
 the verified recovery flow above. Ownership does not follow the current
 WebSocket connection: later recovery by another paired device does not transfer
 the notification inbox. Other paired devices cannot list or mark that device's
 records. There are no new unsolicited WebSocket frame types; clients poll the
 inbox while foregrounded and reconcile on resume or push tap.
+Agent notifications use a separately negotiated recipient and destination model;
+see [Durable Agent notifications](#durable-agent-notifications) below.
 
 | Method and path | Request / response |
 | --- | --- |
@@ -271,7 +273,7 @@ inbox while foregrounded and reconcile on resume or push tap.
 | `PUT /v2/notifications/push/preview` | Exact `{keyId,key}` → `{ok:true}`; opt in after registering push. Replaces the device's key. |
 | `DELETE /v2/notifications/push/preview` | Remove this device's preview key and queued ciphertext, retaining generic deliveries → `{ok:true}`. |
 
-The inbox response is `{version:1,items,nextCursor,unreadCount,unreadByRuntime,
+The default session-only inbox response is `{version:1,items,nextCursor,unreadCount,unreadByRuntime,
 unreadBySession,delivery,registration,preview}`. Each item is
 `{id,runtimeId,sessionId,requestId,kind,createdAt,readAt,expiresAt}`; timestamps
 are epoch milliseconds, and `readAt` is null until read. `kind` is `completed`,
@@ -369,3 +371,115 @@ for the app's notification-service extension. Generic sends keep their existing
 payload. Serialized provider envelopes are bounded to 4096 UTF-8 bytes. Foreground
 display and navigation continue to use the authenticated inbox; push cannot grant
 access or approval authority.
+
+### Agent workspace
+
+The authenticated capability `agents` describes relay support. Check the selected entry of `GET /v2/runtimes` for an online runtime advertising `agents_v1`. Send `{id,runtimeId,body}` over the authenticated client socket. The runtime registration's historical `agentId` identifies a machine. Workspace operations identify an Agent with `body.targetAgentId`.
+
+| Request body type | Client fields |
+| --- | --- |
+| `agents.list.request` | `limit?, cursor?` |
+| `agents.detail.request` | `targetAgentId, limit?, beforeMessageId?` |
+| `agents.message.send.request` | `targetAgentId, clientMessageId, text, intent?, limits?` |
+| `agents.action.request` | `targetAgentId, action, text?, limits?, expectedRevision?` |
+| `agents.approval.decide.request` | `targetAgentId, approvalId, approved, reason?`, optional durable identity `generation, waitId, revision, commandId` together |
+| `agents.authoring.preview.request` | `authoring, targetAgentId?` |
+| `agents.create.request`, `agents.update.request` | `expectedRevision` and either `authoring` or the existing `definition, limits, onboarding?`. Updates include `targetAgentId`. |
+| `agents.delete.request` | `targetAgentId, expectedRevision` |
+| `agents.sessions.request`, `agents.session.request` | `targetAgentId, limit?, cursor?`, plus `sessionId` for a session page |
+| `agents.schedules.list.request` | `targetAgentId, limit?, cursor?` |
+| `agents.schedules.create.request`, `agents.schedules.update.request` | `targetAgentId, scheduleId, title, text, startAt, intervalMs, maxOccurrences, limits`, plus `expectedRevision` for updates |
+| `agents.schedules.cancel.request` | `targetAgentId, scheduleId, expectedRevision` |
+| `agents.subscribe.request`, `agents.unsubscribe.request` | No additional fields |
+
+`intent` is `auto` (default), `message`, or `task`. Reuse the same `clientMessageId` when reconciling an uncertain send through a new outer command ID. Actions are `pause`, `cancel`, `steer`, `resume`, `archive`, and `restore`. Steer/resume require text; archive/restore require the expected revision. Configure a name, icon, base prompt, model profile and tool-permission mode in `definition`. The runtime resolves execution policy from the model profile. For guided onboarding, submit `authoring:{name,icon,modelProfileId,toolPermissionMode,onboarding,limits?}`. Draft preview accepts partial choices and returns `data.preview` with the generated `basePrompt`, three model-aware budget `presets` and selected `limits` (null when no budget is ready). To save, send the complete choices. Provide explicit authoring limits only for a custom budget. An existing Agent can be the preview target when editing. Pages default to 50 items with a maximum of 100. The response body limit is 1 MiB.
+
+Responses carry the original outer command ID and `.response` body type. A successful body has `ok:true,data`, and a failure carries `ok:false,error`. Targeted replies echo `targetAgentId`, message sends echo `clientMessageId`, and session pages echo `sessionId`. A created Agent's ID is at `data.agent.id`. If a committed mutation's view cannot be returned, its successful receipt carries `data:{acknowledged:true,needsRefetch:true,targetAgentId,revision?}`. Refresh that Agent using the receipt's ID. A read can return `agents_response_too_large` or `agents_response_too_complex` when its projected data exceeds the transport bounds. List data carries summaries and `nextCursor`. Details carry the public conversation, task, progress, recovery and approvals. Session pages carry conversation messages. Schedule operations return schedule records.
+
+Runtime access grants workspace visibility and pause, cancel and cleanup operations. Socket supplies the authenticated runtime grant's `allowedModes` to the runtime. Starting or continuing execution, deciding a pending approval, configuring a mode or scheduling work requires the allowed range through the Agent's permission level. Approval decisions also check the work session's bound mode because resolving the last pending decision can resume the session. The application can use `canSend` in snapshots to reflect that distinction.
+
+Subscribe, wait for the correlated response with `data.subscribed:true`, then read the snapshot. Each `relay.event` with body `{type:"agents.changed",revision}` invalidates the cached view even if its revision equals the previous one. Runtime work may advance within the same workspace revision. When the runtime disconnects, its still-authorized subscribers receive a final `relay.event` with `{type:"agents.subscription.invalidated",reason:"runtime_disconnected"}` and the affected outer `runtimeId`. Mark that view stale. While the client socket stays connected, retry the subscription with backoff on `runtime_offline` and read a new snapshot after the subscription succeeds. A client reconnect also requires a fresh subscription and snapshot. Subscriptions carry no conversation content or event history.
+
+### Agent orbit summary projection (2026-11-18)
+
+Each remote list entry may include `mission:{id,status}`, `thinkingSince`,
+`latestWorkUpdate:{id,missionId,text,createdAt}` and `latestReply.missionId`.
+Work updates must bind the current active mission; text is bounded to 1,200
+characters. They contain only public model reports, never private assignments,
+coordination replies or rationale. Older runtimes may omit these optional fields.
+Change hints can arrive during reads: retain the previous usable view while
+fetching, and schedule another bounded read rather than erasing displayed notices.
+
+### Durable Agent notifications
+
+Live `agents.changed` invalidations remain unchanged. They are not phone push
+notifications. A Runtime advertising both `agents_v1` and
+`agents_notifications_v1` may send the separate notification stream only after
+`registered.agentNotifications:{version:1}` is present. Echoed feature names alone
+are not negotiation: older relays echo unknown advertised names.
+
+A notification frame is:
+
+```json
+{
+  "type": "agents.notification",
+  "eventId": "<64 lowercase SHA-256 hex characters>",
+  "targetAgentId": "researcher",
+  "missionId": "<mission ID>",
+  "messageId": "<public message ID>",
+  "reason": "reply",
+  "createdAt": 1795000000000,
+  "expiresAt": 1795604800000,
+  "output": "<optional public model excerpt>"
+}
+```
+
+Reasons are `reply`, `question`, `completed`, `result`, `exhausted`, `plan`, and
+`attention`. The last represents a canonical state needing a user decision when no
+public model message exists; it may omit `messageId` and cannot contain a nonempty
+`output`. Other reasons require a public message ID. Runtime identity comes from
+the authenticated connection and cannot be supplied in this frame. Agent/mission
+IDs are nonblank, control-free opaque strings of at most 256 code units; message IDs
+allow 4,096. Output allows 600 Unicode code points. Frames are bounded to 24 KiB.
+Timestamps are integer epoch milliseconds; retention is at most seven days and
+creation time cannot exceed the receiver clock by more than five minutes.
+
+The Socket returns `{type:"agents.notification.ack",eventId}` only after one
+transaction stores the Runtime-scoped receipt and all eligible device inbox/outbox
+rows. Retrying the identical event is safe after a lost ACK or server restart.
+Reusing an event ID with different content is rejected. A valid expired event is
+acknowledged without delivery. Receipts expire with the event and are limited to
+10,000 per Runtime; capacity/storage failure leaves the event unacknowledged for
+bounded Runtime retry. The Runtime establishes an activation baseline so old
+conversation history is not sent as new notifications. Neither side reruns work.
+
+Only active paired devices that have automatically negotiated Agent support and
+whose pairing/opt-in predates the event receive it. There is no dependency on a
+live phone socket, Web UI, currently selected Agent, or an originating chat session.
+The current single-owner pairing model grants devices the configured Runtime list;
+recipient identity cannot be injected by a Runtime event. Replays cannot add newly
+paired devices to an already recorded event.
+
+New clients call authenticated `PUT /v2/notifications/capabilities` with
+`{agents:true}` and receive `{ok:true,agents:true}`. This is automatic client-version
+negotiation, not an extra user setting. Repeated opt-in preserves its original time;
+`{agents:false}` cancels queued Agent deliveries. Old clients default to disabled.
+Only after successful negotiation, clients add `includeAgents=true` to
+`GET /v2/notifications`; default responses retain session-only rows and counts.
+An unsupported endpoint on an older server leaves ordinary notifications usable.
+
+Agent inbox rows contain the existing ID, Runtime, kind and timestamps plus
+`target:"agent",agentId,missionId,reason,messageId?`. They omit `sessionId` and
+`requestId` and must open an Agent conversation, never an internal work session.
+Agent-enabled responses add `unreadByAgent` alongside existing counts. Presence may
+contain `agentId` instead of `sessionId`, with the same authenticated Runtime scope;
+it remains advisory and does not silently mark messages read.
+
+Provider kinds remain compatible: public reply/result/completion maps to
+`completed`; questions and other needs-attention events map to `failed`, not tool
+approval. The app uses the Agent destination/reason for its user-facing copy.
+Push still carries only an opaque inbox ID. Completed public excerpts reuse the
+existing opt-in encrypted-preview format; attention content stays generic. No new
+plaintext content is retained in the inbox, receipts or delivery queue. Schema v5
+preserves existing device tokens, pending pairing, notification IDs, delivery
+attempts, registrations and encrypted previews in an atomic migration.

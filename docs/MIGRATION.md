@@ -27,6 +27,34 @@ sessions persist there. Socket connections and transient subscriptions still
 disappear on restart; durable request ownership is described below. Interrupted
 requests must be reconciled against runtime state before retry.
 
+## Agent notification schema upgrade
+
+Version 0.3.0 uses schema v5. Schemas v1 through v4 upgrade transactionally when
+the new code opens the private database. The migration preserves owner identity,
+paired-device tokens, pending pairing, request ownership, notification IDs,
+read state, push registrations, preview keys, encrypted queued previews and
+delivery attempts. It adds device capability records and Runtime-scoped receipts
+for durable Agent notifications. No new dependency or separate state file is
+required, and existing devices do not need to pair again.
+
+Stop the service and back up its private configuration, complete state directory
+and matching deployed code before upgrading. Version 0.2.0 and earlier binaries
+reject schema v5. To roll back, stop the service and restore both the pre-upgrade
+state snapshot and its matching code; do not point an older binary at migrated
+state or delete the database to make it start. Reconcile device revocations and
+deliveries made since that snapshot before resuming service.
+
+Agent workspace access requires `agents_v1` on the selected Runtime. Agent
+notifications additionally require `agents_notifications_v1` and the relay's
+explicit `registered.agentNotifications` acknowledgement, plus automatic
+capability negotiation by a compatible client. Existing clients retain their
+session-only inbox and notifications. Push delivery remains off unless configured
+by the operator. See the [Agent notification protocol](PROTOCOL.md#durable-agent-notifications).
+
+Installing the package does not restart an existing service. Retain its current
+configuration instead of rerunning `setup`; use [`add-runtime`](SELF-HOSTING.md#add-a-second-or-third-computer)
+only when enrolling an additional computer.
+
 ## Durable request ownership schema upgrade
 
 Schema v4 adds a routing-ownership table to the existing private database.

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isRecord, relayError } from './relay-runtime-registration.mjs';
+import { isAgentCommand } from '../protocol/agents-protocol.mjs';
+import { projectAgentResponse } from '../protocol/agents-response.mjs';
 import { isApprovalCommand } from '../protocol/approval-protocol.mjs';
 import { SPARK_OPEN_REQUEST, projectSparkOpenResponse } from '../protocol/spark-chat-protocol.mjs';
 
@@ -51,7 +53,8 @@ export class RelayCorrelations {
     const correlationId = randomUUID();
     // Retain routing identity, never attachment bytes, prompts or conversation data.
     const identity = { type: command.type, requestId: command.requestId,
-      sessionId: command.sessionId, steerId: command.steerId, messageId: command.messageId };
+      sessionId: command.sessionId, steerId: command.steerId, messageId: command.messageId,
+      targetAgentId: command.targetAgentId, clientMessageId: command.clientMessageId, scheduleId: command.scheduleId };
     const entry = { client, runtime, id, command: identity, expectedType, correlationId,
       expiresAt: this.now() + RPC_TIMEOUT_MS, steerKey, lifecycle };
     this.pending.set(correlationId, entry);
@@ -70,10 +73,13 @@ export class RelayCorrelations {
       ? this.steering.get(steeringKey(runtime, body)) : body.correlationId;
     const entry = this.pending.get(correlationId);
     if (!entry || entry.runtime !== runtime || entry.expectedType !== body.type) return false;
-    if (entry.expiresAt <= this.now() || !matchesResponseIdentity(entry, body)) return false;
+    if (entry.expiresAt <= this.now()) return false;
+    const agentCommand = isAgentCommand(entry.command.type);
+    const agentResponse = agentCommand ? projectAgentResponse(entry.command, body) : null;
+    if (agentCommand ? !agentResponse : !matchesResponseIdentity(entry, body)) return false;
     // An invalid reply must never consume the genuine request's pending record.
     this.remove(entry);
-    const response = entry.command.type === SPARK_OPEN_REQUEST ? projectSparkOpenResponse(body) : body;
+    const response = agentResponse ?? (entry.command.type === SPARK_OPEN_REQUEST ? projectSparkOpenResponse(body) : body);
     (entry.lifecycle.respond ?? this.respond)(entry, response);
     return true;
   }

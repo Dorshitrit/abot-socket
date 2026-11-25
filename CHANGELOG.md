@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.0 - 2026-11-25
+
+### Added
+
+- Access the runtime's Agents workspace through compatible paired clients,
+  including messages, tasks, schedules, authoring previews and approval decisions.
+  Runtime grants and Agent permission levels continue to govern each operation.
+- Keep Agent views current through scoped subscriptions, reconnect invalidation
+  and bounded public mission and reply summaries.
+- Deliver durable Agent notifications to compatible paired clients without an
+  open Web connection, with replay deduplication and delivery receipts. Older
+  clients retain session-only notification behavior.
+- Enroll another computer with `abot-socket add-runtime` without rerunning setup
+  or replacing existing runtime grants and phone pairing. The new grant starts
+  with Ask permission; credentials are written to a new private output directory.
+
+### Upgrade notes
+
+- Private SQLite state upgrades transactionally from schemas v1–v4 to v5,
+  preserving paired devices, pending pairing, existing notifications and delivery
+  queues, encrypted previews and durable request ownership. Stop the service and
+  back up private configuration, state and matching code before upgrading.
+  Version 0.2.0 cannot open schema v5; rollback requires both the pre-upgrade state
+  and old code. See [Migration](docs/MIGRATION.md#agent-notification-schema-upgrade).
+- Agents workspace access requires the runtime's `agents_v1` capability. Agent
+  notifications additionally require `agents_notifications_v1`, explicit runtime
+  negotiation and a compatible client that opts in. Existing chat and notification
+  paths remain available to older clients.
+- After `add-runtime`, deliberately restart the configured Socket service to load
+  the new grant. The command does not start or restart services itself.
+- Node.js 24 or later remains required. Dependencies are unchanged.
+
 ## 0.2.0 - 2026-11-14
 
 ### Added

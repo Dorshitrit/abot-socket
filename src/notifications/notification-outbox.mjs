@@ -1,3 +1,4 @@
+import { projectNotificationDestination } from './notification-destination.mjs';
 import { validatedNotificationPreview } from './notification-preview-crypto.mjs';
 
 const MAX_ATTEMPTS = 5;
@@ -12,16 +13,19 @@ export class NotificationOutbox {
       this.database.prepare('DELETE FROM notification_outbox WHERE attempts >= ?').run(MAX_ATTEMPTS);
       const row = this.database.prepare(`SELECT n.id, n.device_id AS deviceId, n.runtime_id AS runtimeId,
         n.session_id AS sessionId, n.request_id AS requestId, n.kind, n.created_at AS createdAt,
+        n.target, n.agent_id AS agentId, n.mission_id AS missionId, n.message_id AS messageId, n.reason,
         n.read_at AS readAt, n.expires_at AS expiresAt, o.attempts, o.encrypted_preview, r.registration
         FROM notification_outbox o JOIN notifications n ON n.id = o.notification_id
         JOIN devices d ON d.id = n.device_id JOIN notification_registrations r ON r.device_id = n.device_id
         WHERE o.next_at <= ? AND n.read_at IS NULL AND n.expires_at > ? AND d.expires_at > ?
+        AND (n.target = 'session' OR EXISTS (SELECT 1 FROM notification_client_capabilities c WHERE c.device_id = n.device_id))
         AND r.provider = ? ORDER BY o.next_at, n.created_at, n.id LIMIT 1`)
         .get(this.now(), this.now(), this.now(), provider);
       if (!row) return null;
       this.database.prepare('UPDATE notification_outbox SET attempts = attempts + 1, next_at = ? WHERE notification_id = ?')
         .run(this.now() + CLAIM_MS, row.id);
-      const { deviceId, registration, attempts, encrypted_preview: encodedPreview, ...notification } = row;
+      const { deviceId, registration, attempts, encrypted_preview: encodedPreview, ...fields } = row;
+      const notification = projectNotificationDestination(fields);
       if (encodedPreview) {
         try {
           const preview = validatedNotificationPreview(JSON.parse(encodedPreview), notification, this.now());
@@ -36,7 +40,8 @@ export class NotificationOutbox {
     const row = this.database.prepare(`SELECT r.registration, o.encrypted_preview FROM notification_outbox o
       JOIN notifications n ON n.id = o.notification_id JOIN devices d ON d.id = n.device_id
       JOIN notification_registrations r ON r.device_id = n.device_id
-      WHERE n.id = ? AND n.device_id = ? AND n.read_at IS NULL AND n.expires_at > ? AND d.expires_at > ?`)
+      WHERE n.id = ? AND n.device_id = ? AND n.read_at IS NULL AND n.expires_at > ? AND d.expires_at > ?
+      AND (n.target = 'session' OR EXISTS (SELECT 1 FROM notification_client_capabilities c WHERE c.device_id = n.device_id))`)
       .get(entry.notification.id, entry.deviceId, this.now(), this.now());
     return row?.registration === JSON.stringify(entry.registration) && row.encrypted_preview === entry.encodedPreview;
   }

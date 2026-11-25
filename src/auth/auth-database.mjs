@@ -1,12 +1,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { assertSameDatabaseFile, prepareAuthenticationDatabase } from './auth-storage-path.mjs';
+import { AGENT_NOTIFICATION_SCHEMA } from '../notifications/agent-notification-schema.mjs';
 import { NOTIFICATION_SCHEMA } from '../notifications/notification-schema.mjs';
 import { NOTIFICATION_PREVIEW_SCHEMA } from '../notifications/notification-preview-schema.mjs';
 import { REQUEST_OWNERSHIP_SCHEMA } from '../relay/request-ownership-schema.mjs';
 
 const APPLICATION_ID = 0x41425341;
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
   CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -82,10 +83,11 @@ export class AuthDatabase {
     const applicationId = this.prepare('PRAGMA application_id').get().application_id;
     const version = this.prepare('PRAGMA user_version').get().user_version;
     if (applicationId === APPLICATION_ID && version === SCHEMA_VERSION) return;
-    if (applicationId === APPLICATION_ID && [1, 2, 3].includes(version)) {
+    if (applicationId === APPLICATION_ID && [1, 2, 3, 4].includes(version)) {
       if (version === 1) this.#connection.exec(NOTIFICATION_SCHEMA);
       if (version <= 2) this.#connection.exec(NOTIFICATION_PREVIEW_SCHEMA);
-      this.#connection.exec(REQUEST_OWNERSHIP_SCHEMA);
+      if (version <= 3) this.#connection.exec(REQUEST_OWNERSHIP_SCHEMA);
+      this.#connection.exec(AGENT_NOTIFICATION_SCHEMA);
       this.#connection.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
       return;
     }
@@ -97,6 +99,7 @@ export class AuthDatabase {
     this.#connection.exec(NOTIFICATION_SCHEMA);
     this.#connection.exec(NOTIFICATION_PREVIEW_SCHEMA);
     this.#connection.exec(REQUEST_OWNERSHIP_SCHEMA);
+    this.#connection.exec(AGENT_NOTIFICATION_SCHEMA);
     const insert = this.prepare('INSERT INTO metadata(key, value) VALUES (?, ?)');
     insert.run('owner_id', randomUUID());
     insert.run('token_salt', randomBytes(32).toString('hex'));

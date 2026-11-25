@@ -6,6 +6,7 @@ abot-socket setup --output <new-directory> --origin <https-origin> --runtime-id 
 abot-socket review-setup --output <new-directory> --origin <socket-https-origin> --runtime-id <id>
   --review-origin <separate-https-origin> [--port 8788] [--review-port 8789]
 abot-socket review-portal --config <demo-directory/config.json>
+abot-socket add-runtime --runtime-id <new-id> --output <new-private-directory>
 abot-socket start
 abot-socket check-config
 abot-socket doctor
@@ -26,6 +27,8 @@ Doctor makes one public HTTPS request to your configured /health endpoint; it do
 not verify a runtime or send authentication credentials. Start runs in foreground.
 Deployment only writes reviewable Linux systemd/proxy files and instructions. It
 does not install packages, obtain certificates, run sudo, or activate a service.
+Add-runtime preserves existing grants and phone pairings, creates a new ask-only
+grant and private connection file, and requires a deliberate Socket restart.
 Runtime secrets belong only on the runtime computer, never in the mobile app.
 Review setup creates a new isolated Socket identity and private review-access.txt;
 it never adds a portal to an existing installation or starts a runtime/service.

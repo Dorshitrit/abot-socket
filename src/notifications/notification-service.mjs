@@ -1,3 +1,4 @@
+import { AgentNotificationIngest } from './agent-notification-ingest.mjs';
 import { NotificationStore } from './notification-store.mjs';
 import { NotificationOutbox } from './notification-outbox.mjs';
 import { closesApprovalNotifications, projectNotificationEvent } from './notification-projection.mjs';
@@ -17,6 +18,7 @@ export class NotificationService {
     this.closed = false;
     this.pending = null;
     this.active = null;
+    this.agents = new AgentNotificationIngest({ store: this.store, delivery, changed: id => this.changed(id) });
   }
 
   changed(deviceId) {
@@ -43,9 +45,20 @@ export class NotificationService {
     if (changed) this.changed(identity.deviceId);
   }
 
+  setCapabilities(deviceId, agents) {
+    if (!agents && this.active?.entry.deviceId === deviceId && this.active.entry.notification.target === 'agent') {
+      this.active.controller.abort();
+    }
+    if (!this.agents.capabilities(deviceId, agents)) throw notificationInputError('unauthorized', 401);
+    return { ok: true, agents };
+  }
+
+  observeAgent(runtimeId, event) { return this.agents.observe(runtimeId, event); }
+
   list(deviceId, options) {
+    const includeAgents = options?.includeAgents === true && this.agents.supportsAgents(deviceId);
     const registration = this.store.registration(deviceId);
-    return { version: 1, ...this.store.list(deviceId, options),
+    return { version: 1, ...this.store.list(deviceId, { ...options, includeAgents }),
       delivery: { mode: this.delivery.mode, configured: this.delivery.configured },
       registration: { enabled: this.delivery.configured && registration?.provider === this.delivery.mode },
       preview: this.store.previews.status(deviceId) };
@@ -114,6 +127,7 @@ export class NotificationService {
 
   async drain() {
     this.store.prune();
+    this.agents.prune();
     for (const [deviceId, presence] of this.presence) {
       if (presence.expiresAt <= this.now()) this.presence.delete(deviceId);
     }
@@ -127,7 +141,7 @@ export class NotificationService {
       let result;
       try {
         result = await this.delivery.send({ registration: entry.registration, notification: entry.notification,
-          badge: this.store.counts(entry.deviceId).unreadCount }, controller.signal);
+          badge: this.store.counts(entry.deviceId, this.agents.supportsAgents(entry.deviceId)).unreadCount }, controller.signal);
       } catch { result = { status: 'retry' }; }
       this.active = null;
       if (controller.signal.aborted) { this.outbox.cancel(entry); continue; }

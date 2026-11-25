@@ -9,7 +9,10 @@ import { SPARK_OPEN_REQUEST, SPARK_OPEN_RESPONSE } from './spark-chat-protocol.m
 
 export { MAX_MESSAGE_BYTES, MAX_ATTACHMENT_BYTES, MAX_TEXT_BYTES } from './protocol-validation.mjs';
 
+import { AGENT_FIELDS, AGENT_RESPONSES, isAgentCommand, normalizeAgentCommand } from './agents-protocol.mjs';
+
 const FIELDS = Object.freeze({
+  ...AGENT_FIELDS,
   [SPARK_OPEN_REQUEST]: [],
   run_request: ['requestId', 'sessionId', 'input', 'text', 'agentMode', 'modelPreference', 'reasoningPreference', 'toolPermissionMode', 'attachments', 'approvalMode'],
   ...APPROVAL_FIELDS,
@@ -26,6 +29,7 @@ const FIELDS = Object.freeze({
   subscribe_request: ['requestId'],
 });
 const RESPONSES = Object.freeze({
+  ...AGENT_RESPONSES,
   [SPARK_OPEN_REQUEST]: SPARK_OPEN_RESPONSE,
   ...APPROVAL_RESPONSES,
   'request.events.request': 'request.events.response',
@@ -65,6 +69,7 @@ function run(value, allowedModes) {
 }
 
 function normalize(value, allowedModes) {
+  if (isAgentCommand(value.type)) return normalizeAgentCommand(value, allowedModes);
   if (isApprovalCommand(value.type)) return normalizeApprovalCommand(value);
   const result = { type: value.type };
   switch (value.type) {

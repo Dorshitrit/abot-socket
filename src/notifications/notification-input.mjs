@@ -1,3 +1,4 @@
+import { isAgentNotificationId } from '../protocol/agent-notification-protocol.mjs';
 import { isRelayId } from '../relay/relay-runtime-registration.mjs';
 import { hasPreviewKey } from './notification-preview-crypto.mjs';
 
@@ -19,16 +20,24 @@ export function notificationReadIds(value) {
 }
 
 export function notificationPresence(value, allowedRuntimeIds) {
-  exactRecord(value, ['foreground', 'runtimeId', 'sessionId']);
+  exactRecord(value, ['foreground', 'runtimeId', 'sessionId', 'agentId']);
   if (typeof value.foreground !== 'boolean') throw notificationInputError();
   for (const key of ['runtimeId', 'sessionId']) {
     if (value[key] !== undefined && !isRelayId(value[key])) throw notificationInputError();
   }
-  if (value.sessionId !== undefined && value.runtimeId === undefined) throw notificationInputError();
+  if (value.agentId !== undefined && !isAgentNotificationId(value.agentId)) throw notificationInputError();
+  if (value.sessionId !== undefined && value.agentId !== undefined) throw notificationInputError();
+  if ((value.sessionId !== undefined || value.agentId !== undefined) && value.runtimeId === undefined) throw notificationInputError();
   if (value.runtimeId !== undefined && !allowedRuntimeIds.includes(value.runtimeId)) {
     throw notificationInputError('forbidden', 403);
   }
   return value.foreground ? { ...value } : { foreground: false };
+}
+
+export function notificationCapabilities(value) {
+  exactRecord(value, ['agents']);
+  if (typeof value.agents !== 'boolean') throw notificationInputError();
+  return value.agents;
 }
 
 function boundedCredential(value, maxLength) {
@@ -59,21 +68,24 @@ export function notificationPreviewKey(value) {
 
 export function notificationListOptions(params) {
   const keys = [...params.keys()];
-  if (new Set(keys).size !== keys.length || keys.some(key => !['limit', 'before'].includes(key))) {
+  if (new Set(keys).size !== keys.length || keys.some(key => !['limit', 'before', 'includeAgents'].includes(key))) {
     throw notificationInputError();
   }
+  const agents = params.get('includeAgents');
+  if (agents !== null && !['true', 'false'].includes(agents)) throw notificationInputError();
+  const capability = agents === 'true' ? { includeAgents: true } : {};
   const limitValue = params.get('limit') ?? '50';
   if (!/^\d{1,3}$/.test(limitValue)) throw notificationInputError();
   const limit = Number(limitValue);
   if (limit < 1 || limit > 100) throw notificationInputError();
   const cursor = params.get('before');
-  if (cursor === null) return { limit, before: null };
+  if (cursor === null) return { limit, before: null, ...capability };
   if (!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)) throw notificationInputError();
   try {
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
     if (!Array.isArray(value) || value.length !== 2 || !Number.isSafeInteger(value[0]) ||
       value[0] < 0 || !isRelayId(value[1])) throw new Error();
-    return { limit, before: { createdAt: value[0], id: value[1] } };
+    return { limit, before: { createdAt: value[0], id: value[1] }, ...capability };
   } catch { throw notificationInputError(); }
 }
 

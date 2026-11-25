@@ -19,7 +19,7 @@ test('first adoption persists only the verified routing identity across reopen',
   f.database.close();
   const reopened = f.open();
   assert.deepEqual(reopened.store.get('runtime', 'request'), expected);
-  assert.equal(reopened.database.prepare('PRAGMA user_version').get().user_version, 4);
+  assert.equal(reopened.database.prepare('PRAGMA user_version').get().user_version, 5);
 });
 
 test('same-owner same-session adoption is idempotent and keeps the original device and lifecycle', t => {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AuthDatabase } from '../src/auth/auth-database.mjs';
 import { AuthService } from '../src/auth/auth.mjs';
+import { restoreLegacyNotificationSchema } from './notification-legacy-schema-fixture.mjs';
 import { ownershipFixture } from './request-ownership-fixture.mjs';
 
 const BASE_TABLES = ['metadata', 'pairing', 'devices', 'pairing_attempts'];
@@ -28,6 +29,7 @@ function seedExistingState(f) {
 
 /** Recreate each prior schema by removing only tables/columns introduced later. */
 function downgradeFixture(database, version) {
+  restoreLegacyNotificationSchema(database);
   database.prepare('DROP TABLE request_ownership').run();
   if (version < 3) database.prepare('DROP TABLE notification_preview_keys').run();
   if (version === 2) database.prepare('ALTER TABLE notification_outbox DROP COLUMN encrypted_preview').run();
@@ -49,13 +51,17 @@ for (const version of [1, 2, 3]) {
     const owner = f.database.ownerId; const salt = f.database.tokenSalt;
     f.database.close();
     const { database, store } = f.open();
-    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 4);
+    assert.equal(database.prepare('PRAGMA user_version').get().user_version, 5);
     assert.equal(database.ownerId, owner); assert.equal(database.tokenSalt, salt);
     for (const [table, before] of snapshots) {
       const after = rows(database, table);
       if (version === 2 && table === 'notification_outbox') {
         assert.deepEqual(after.map(({ encrypted_preview, ...record }) => record), before.map(record => ({ ...record })));
         assert.equal(after[0].encrypted_preview, null);
+      } else if (table === 'notifications') {
+        const keys = Object.keys(before[0] ?? {});
+        assert.deepEqual(after.map(row => Object.fromEntries(keys.map(key => [key, row[key]]))), before.map(row => ({ ...row })));
+        assert.ok(after.every(row => row.target === 'session' && row.agent_id === null));
       } else assert.deepEqual(after, before);
     }
     const schema = database.prepare('PRAGMA table_list').all().find(row => row.name === 'request_ownership');
@@ -69,7 +75,7 @@ for (const version of [1, 2, 3]) {
     const record = store.create(f.identity());
     const reopened = f.open();
     assert.deepEqual(reopened.store.get('runtime', 'request'), record);
-    assert.equal(reopened.database.prepare('PRAGMA user_version').get().user_version, 4);
+    assert.equal(reopened.database.prepare('PRAGMA user_version').get().user_version, 5);
   });
 }
 
@@ -89,8 +95,8 @@ test('failed schema migration rolls back newly created tables and preserves prio
 
 test('a future schema is rejected without downgrading state', t => {
   const f = ownershipFixture(t); const record = f.store.create(f.identity());
-  f.database.prepare('PRAGMA user_version = 5').run();
+  f.database.prepare('PRAGMA user_version = 6').run();
   assert.throws(() => new AuthDatabase(f.stateDirectory), /Unrecognized authentication database/);
-  assert.equal(f.database.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(f.database.prepare('PRAGMA user_version').get().user_version, 6);
   assert.deepEqual(f.store.get('runtime', 'request'), record);
 });

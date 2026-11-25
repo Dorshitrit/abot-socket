@@ -1,3 +1,4 @@
+import { runRuntimeEnrollment } from './runtime-enrollment-command.mjs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInstallation } from '../setup/setup.mjs';
@@ -12,6 +13,7 @@ export function runCli(args, { env = process.env, out = console.log, error = con
   const [command, ...rest] = args;
   if (!command || command === '--help' || command === 'help') { out(USAGE); return 0; }
   try {
+    if (command === 'add-runtime') return runRuntimeEnrollment(rest, { env, out, error });
     if (command === 'review-setup') {
       const result = createReviewDemoInstallation(parseReviewDemoArguments(rest));
       out(`Created isolated review demo files in ${JSON.stringify(result.directory)}.`);

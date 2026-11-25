@@ -14,7 +14,7 @@ POSIX ownership/permissions and does not support Windows server installation.
 Install the command from the official npm registry:
 
 ```sh
-npm install --global @abot-ai/socket@0.2.0
+npm install --global @abot-ai/socket@0.3.0
 abot-socket --version
 abot-socket setup
 ```
@@ -22,7 +22,7 @@ abot-socket setup
 Prefer an explicit version for server upgrades. An installed package uses the
 `abot-socket` command; it does not require a Git checkout or `npm ci`.
 For an existing installation, retain its configuration and follow the
-[state backup and schema upgrade guide](MIGRATION.md#durable-request-ownership-schema-upgrade)
+[state backup and schema upgrade guide](MIGRATION.md#agent-notification-schema-upgrade)
 before replacing the package. `setup` prepares a new configuration; it does not
 migrate or overwrite an existing one.
 
@@ -39,7 +39,7 @@ npm run check-package -- /tmp/abot-socket-pack.json
 Then install that tarball (or a verified local tarball you already have):
 
 ```sh
-npm install --global ./abot-ai-socket-0.2.0.tgz
+npm install --global ./abot-ai-socket-0.3.0.tgz
 abot-socket --version
 abot-socket setup
 ```

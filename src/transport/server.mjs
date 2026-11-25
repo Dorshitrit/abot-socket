@@ -34,6 +34,7 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
     auth?.close(); database.close(); throw error;
   }
   const peers = new Map();
+  let stopped = false;
   const upgrades = new WindowLimiter({ limit: 30, windowMs: 60_000, now });
   const requests = new WindowLimiter({ limit: 120, windowMs: 60_000, now });
   const close = (peer, code = 1008, reason = 'Access denied') => {
@@ -41,11 +42,11 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
     else peer.terminate();
   };
   const send = (peer, payload) => {
+    if (stopped || peer.readyState !== WebSocket.OPEN) return false;
     const context = peers.get(peer);
     if (context?.role === 'client' && !auth.authenticate(context.token)) {
       close(peer); return false;
     }
-    if (peer.readyState !== WebSocket.OPEN) return false;
     let encoded;
     try { encoded = JSON.stringify(payload); } catch { return false; }
     if (Buffer.byteLength(encoded) > MAX_FRAME || peer.bufferedAmount + Buffer.byteLength(encoded) > MAX_BUFFER) {
@@ -57,10 +58,11 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
   const relay = new Relay({ now, send, close, ownership,
     isClientAuthorized: client => {
       const context = peers.get(client.peer);
-      if (context?.role !== 'client') return false;
+      if (stopped || context?.role !== 'client' || client.peer.readyState !== WebSocket.OPEN) return false;
       const principal = auth.authenticate(context.token);
       return principal?.subject === client.subject && principal.sessionId === client.sessionId;
     },
+    observeAgentNotification: (runtimeId, event) => notifications.observeAgent(runtimeId, event),
     observeRequest: (identity, body) => notifications.observe(identity, body) });
   const authorityAccepted = (req) => sameAuthority(req, origin) &&
     (Boolean(req.socket.encrypted) || req.headers['x-forwarded-proto'] === 'https');
@@ -155,7 +157,6 @@ export function createSocketServer({ stateDirectory, runtimeGrants: grants,
   }, 30_000);
   heartbeat.unref();
   notifications.start();
-  let stopped = false;
   return {
     listen: (port = 8788) => new Promise((resolve, rejectListen) => {
       server.once('error', rejectListen);

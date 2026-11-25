@@ -1,9 +1,10 @@
+import { supportsAgents } from '../protocol/agents-protocol.mjs';
 import { supportsSparkChat } from '../protocol/spark-chat-protocol.mjs';
 
 /** Socket-owned API support; runtime identity/features remain separately scoped. */
 export function clientCapabilities({ ownership, runtime } = {}) {
   return { cancel: false, durableApprovals: supportsDurableApprovals(ownership, runtime),
-    sessionMutation: true, notifications: true, sparkChat: supportsSparkChat(runtime) };
+    sessionMutation: true, notifications: true, sparkChat: supportsSparkChat(runtime), agents: supportsAgents(runtime) };
 }
 
 function supportsDurableApprovals(ownership, runtime) {

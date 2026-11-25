@@ -84,6 +84,35 @@ the platform's protected credential storage. It does not follow authentication
 or WebSocket redirects. A new server requires a new pairing; credentials are
 never silently copied across hosts.
 
+## Add a second or third computer
+
+Use a unique Runtime ID and a new private output directory on the Socket host:
+
+```bash
+abot-socket add-runtime --config /path/to/socket/config.json \
+  --runtime-id third-computer --output /path/to/private/third-computer
+```
+
+The command appends one new grant with `ask` permission. It preserves every existing
+Runtime grant and permission, keeps relative paths and other configuration values,
+and does not open or modify the phone-pairing database. It writes the new secret only
+into `runtime-connection.json` in the new directory (`0700`, file `0600`), never to
+terminal output. An existing ID or output directory is rejected without replacement.
+There is a maximum of 16 Runtime grants per installation.
+
+Restart the configured Socket service deliberately to load the new grant; this
+command does not start or restart services. Transfer the private connection file
+securely to the new computer and import it through the Runtime's Socket connection
+setup. Already paired phones can see the authorized computer without pairing again.
+The file is a credential for the computer, not a phone pairing code.
+
+The config update uses an exclusive `.add-runtime.lock` beside the config and an
+atomic replacement after the private handoff has been written. Do not edit the
+config concurrently. If a process is killed, a lock may remain; verify no enrollment
+is running and inspect the config/output before removing that lock manually. A
+reported post-commit durability failure leaves the handoff intact for inspection;
+do not rerun setup or discard the connection file.
+
 ## Optional push delivery
 
 Push is disabled by default. To enable it, the operator adds
@@ -137,8 +166,8 @@ advertising `request_approvals_v1` and restore live delivery for that request.
 This does not reconstruct missed events or resend interrupted work; reconcile
 against current runtime state before retrying.
 
-Version 0.2.0 uses state schema v4. See the
-[upgrade and rollback procedure](MIGRATION.md#durable-request-ownership-schema-upgrade)
+Version 0.3.0 uses state schema v5. See the
+[upgrade and rollback procedure](MIGRATION.md#agent-notification-schema-upgrade)
 before upgrading; older binaries require the matching pre-upgrade state backup.
 
 The package does not provision a public TLS endpoint or install a service.

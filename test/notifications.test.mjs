@@ -213,12 +213,14 @@ test('schema v1 migrates without losing device tokens, owner identity or pending
     f.database.prepare(`DROP TABLE ${table}`).run();
   }
   f.database.prepare('PRAGMA user_version = 1').run();
+  f.database.prepare('DROP TABLE notification_client_capabilities').run();
+  f.database.prepare('DROP TABLE agent_notification_receipts').run();
   const migrated = new AuthDatabase(f.stateDirectory);
   const auth = new AuthService({ database: migrated, now: f.now });
   try {
     assert.equal(migrated.ownerId, owner); assert.equal(migrated.tokenSalt, salt);
     assert.equal(auth.authenticate(device.token).sessionId, device.session.id);
     assert.ok(auth.redeemPairing(pending, 'fixture').token);
-    assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 4);
+    assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 5);
   } finally { auth.close(); migrated.close(); }
 });

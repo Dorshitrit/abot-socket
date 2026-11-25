@@ -1,5 +1,5 @@
 import { jsonResponse, readJson } from '../transport/transport-limits.mjs';
-import { notificationListOptions, notificationPresence, notificationReadIds, notificationRegistration, notificationPreviewKey } from './notification-input.mjs';
+import { notificationListOptions, notificationCapabilities, notificationPresence, notificationReadIds, notificationRegistration, notificationPreviewKey } from './notification-input.mjs';
 
 /** Authenticated device identity comes from the caller, never from request fields. */
 export async function handleNotificationHttp(req, res, { principal, notifications, runtimeGrants }) {
@@ -10,12 +10,19 @@ export async function handleNotificationHttp(req, res, { principal, notification
     return true;
   }
   if (url.search) return false;
+  if (req.method === 'PUT' && path === '/v2/notifications/capabilities') {
+    const agents = notificationCapabilities(await readJson(req, 128));
+    jsonResponse(res, 200, notifications.setCapabilities(principal.sessionId, agents)); return true;
+  }
   if (req.method === 'POST' && path === '/v2/notifications/read') {
     notifications.markRead(principal.sessionId, notificationReadIds(await readJson(req)));
     jsonResponse(res, 200, { ok: true }); return true;
   }
   if (req.method === 'POST' && path === '/v2/notifications/presence') {
     const value = notificationPresence(await readJson(req), runtimeGrants.map(grant => grant.runtimeId));
+    if (value.agentId !== undefined && !notifications.agents.supportsAgents(principal.sessionId)) {
+      jsonResponse(res, 403, { error: 'forbidden' }); return true;
+    }
     notifications.updatePresence(principal.sessionId, value);
     jsonResponse(res, 200, { ok: true }); return true;
   }

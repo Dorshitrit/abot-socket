@@ -185,7 +185,8 @@ test('paired client mutations cross the real relay transport only after idle run
   const authenticated = await client.next();
   assert.equal(capabilities.durableApprovals, false);
   assert.equal(capabilities.sparkChat, false);
-  assert.deepEqual(authenticated.capabilities, { ...capabilities, durableApprovals: true, sparkChat: true });
+  assert.equal(capabilities.agents, false);
+  assert.deepEqual(authenticated.capabilities, { ...capabilities, durableApprovals: true, sparkChat: true, agents: true });
   for (const name of ['session.delete', 'session.messages.clear', 'session.message.delete']) {
     const body = { type: `${name}.request`, sessionId: 'fixture-session',
       ...(name === 'session.message.delete' ? { messageId: 7 } : {}) };
